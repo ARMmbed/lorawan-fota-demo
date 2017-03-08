@@ -1,0 +1,8 @@
+libmDot-dev-mbed5/
+mbed-os/
+.hg
+BUILD/
+mbed_settings.*
+.mbed
+.vscode/
+
