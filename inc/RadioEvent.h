@@ -80,8 +80,6 @@ public:
                 for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
                     target->putc(info->RxBuffer[ix]);
                 }
-
-                target->putc('\n');
             }
         }
 
@@ -89,7 +87,6 @@ public:
             logInfo("JoinAccept");
 
             target->putc(0x03); // msg ID
-            target->putc('\n');
         }
     }
 
