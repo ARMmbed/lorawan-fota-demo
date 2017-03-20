@@ -293,13 +293,8 @@ void join_network() {
     }
 }
 
-void sleep_wake_rtc_only(bool deepsleep) {
-    // in some frequency bands we need to wait until another channel is available before transmitting again
-    // wait at least 10s between transmissions
-    uint32_t delay_s = dot->getNextTxMs() / 1000;
-    if (delay_s < 10) {
-        delay_s = 10;
-    }
+void sleep_wake_rtc_only(uint32_t delay_s, bool deepsleep) {
+    delay_s = calculate_actual_sleep_time(delay_s);
 
     logInfo("%ssleeping %lus", deepsleep ? "deep" : "", delay_s);
     logInfo("application will %s after waking up", deepsleep ? "execute from beginning" : "resume");
@@ -387,13 +382,23 @@ void sleep_wake_interrupt_only(bool deepsleep) {
     }
 }
 
-void sleep_wake_rtc_or_interrupt(bool deepsleep) {
-    // in some frequency bands we need to wait until another channel is available before transmitting again
-    // wait at least 10s between transmissions
-    uint32_t delay_s = dot->getNextTxMs() / 1000;
-    if (delay_s < 10) {
-        delay_s = 10;
+uint32_t calculate_actual_sleep_time(uint32_t delay_s) {
+    uint32_t next_tx_window = dot->getNextTxMs() / 1000;
+    // If next TX window is after the delay_ms, wait at least until the next TX window is...
+    if (next_tx_window > delay_s) {
+        delay_s = next_tx_window;
     }
+
+    // next window is right now?
+    if (delay_s == 0) {
+        delay_s = 10; // wait 10s.
+    }
+
+    return delay_s;
+}
+
+void sleep_wake_rtc_or_interrupt(uint32_t delay_s, bool deepsleep) {
+    delay_s = calculate_actual_sleep_time(delay_s);
 
 #if defined (TARGET_XDOT_L151CC)
     if (deepsleep) {
@@ -448,6 +453,7 @@ void sleep_wake_rtc_or_interrupt(bool deepsleep) {
 	sleep_restore_io();
     }
 }
+
 
 void sleep_save_io() {
 #if defined(TARGET_XDOT_L151CC)

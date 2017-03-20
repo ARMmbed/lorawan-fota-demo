@@ -15,44 +15,6 @@ public:
 
     virtual ~RadioEvent() {}
 
-    virtual void JoinAccept(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr) {
-        logInfo("JoinAccept");
-
-        target->putc(0x03); // msg ID
-        target->putc('\n');
-    }
-
-    virtual void JoinFailed(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr) {
-        logInfo("JoinFailed");
-    }
-
-
-    virtual void PacketRx(uint8_t port, uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr, lora::DownlinkControl ctrl, uint8_t slot, uint8_t retries=0) {
-        logInfo("PacketRx port=%d, size=%d, rssi=%d, FPending=%d", port, size, rssi, ctrl.Bits.FPending);
-
-        target->putc(0x01); // msg ID
-        target->putc(port);
-        target->putc((size << 8) & 0xff);
-        target->putc(size & 0xff);
-        target->putc(ctrl.Bits.FPending);
-
-        for (size_t ix = 0; ix < size; ix++) {
-            target->putc(payload[ix]);
-        }
-
-        target->putc('\n');
-    }
-
-    virtual void RxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr, lora::DownlinkControl ctrl, uint8_t slot) {
-        logInfo("RxDone size=%d, rssi=%d, FPending=%d", size, rssi, ctrl.Bits.FPending);
-
-        target->putc(0x02); // msg ID
-        target->putc((size << 8) & 0xff);
-        target->putc(size & 0xff);
-        target->putc(ctrl.Bits.FPending);
-        target->putc('\n');
-    }
-
     /*!
      * MAC layer event callback prototype.
      *
@@ -107,10 +69,27 @@ public:
                 // print RX data as hexadecimal
                 //printf("Rx data: %s\r\n", mts::Text::bin2hexString(info->RxBuffer, info->RxBufferSize).c_str());
 
-                // print RX data as string
-                std::string rx((const char*)info->RxBuffer, info->RxBufferSize);
-                printf("Rx data: %s\r\n", rx.c_str());
+                logInfo("PacketRx port=%d, size=%d, rssi=%d, FPending=%d", info->RxPort, info->RxBufferSize, info->RxRssi, 0);
+
+                target->putc(0x01); // msg ID
+                target->putc(info->RxPort);
+                target->putc((info->RxBufferSize << 8) & 0xff);
+                target->putc(info->RxBufferSize & 0xff);
+                target->putc(0 /* FPending 0 for now... Not in this info struct */);
+
+                for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
+                    target->putc(info->RxBuffer[ix]);
+                }
+
+                target->putc('\n');
             }
+        }
+
+        if (flags->Bits.JoinAccept) {
+            logInfo("JoinAccept");
+
+            target->putc(0x03); // msg ID
+            target->putc('\n');
         }
     }
 

@@ -6,7 +6,6 @@
 #include "MTSLog.h"
 #include "MTSText.h"
 #include "ISL29011.h"
-#include "example_config.h"
 
 extern mDot* dot;
 
@@ -24,11 +23,13 @@ void update_network_link_check_config(uint8_t link_check_count, uint8_t link_che
 
 void join_network();
 
-void sleep_wake_rtc_only(bool deepsleep);
+uint32_t calculate_actual_sleep_time(uint32_t delay_s);
+
+void sleep_wake_rtc_only(uint32_t delay_s, bool deepsleep);
 
 void sleep_wake_interrupt_only(bool deepsleep);
 
-void sleep_wake_rtc_or_interrupt(bool deepsleep);
+void sleep_wake_rtc_or_interrupt(uint32_t delay_s, bool deepsleep);
 
 void sleep_save_io();
 
