@@ -49,7 +49,7 @@ void display_config() {
     }
     logInfo("TX datarate -------------- %s", mDot::DataRateStr(dot->getTxDataRate()).c_str());
     logInfo("TX power ----------------- %lu dBm", dot->getTxPower());
-    logInfo("atnenna gain ------------- %u dBm", dot->getAntennaGain());
+    logInfo("antenna gain ------------- %u dBm", dot->getAntennaGain());
 }
 
 void update_ota_config_name_phrase(std::string network_name, std::string network_passphrase, uint8_t frequency_sub_band, bool public_network, uint8_t ack) {

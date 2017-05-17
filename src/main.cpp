@@ -3,6 +3,8 @@
 
 using namespace std;
 
+EventQueue queue;
+
 static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x3D, 0xAA };
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 0;
@@ -21,9 +23,10 @@ Serial pc(USBTX, USBRX);
 
 // fwd declaration
 void send_mac_msg(uint8_t port, vector<uint8_t>* data);
+void class_switch(char cls);
 
 // Custom event handler for automatically displaying RX data
-RadioEvent radio_events(&send_mac_msg);
+RadioEvent radio_events(&queue, &send_mac_msg, &class_switch);
 
 typedef struct {
     uint8_t port;
@@ -39,6 +42,7 @@ AnalogIn lux(XBEE_AD0);
 #endif
 
 vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
+static bool in_class_c_mode = false;
 
 void send_packet(UplinkMessage* message) {
     if (message_queue->size() > 0 && !message->is_mac) {
@@ -102,8 +106,54 @@ void send_mac_msg(uint8_t port, std::vector<uint8_t>* data) {
     message_queue->push_back(m);
 }
 
+void class_switch(char cls) {
+    // @todo; make enum
+    if (cls == 'C') {
+        in_class_c_mode = true;
+
+        LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
+
+        logInfo("Switching to class C (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+
+        std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
+        std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
+        std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
+
+        dot->setNetworkAddress(address);
+        dot->setNetworkSessionKey(nwkskey);
+        dot->setDataSessionKey(appskey);
+        // dot->setClass("C");
+
+        logInfo("Switched to class C");
+    }
+    else if (cls == 'A') {
+        in_class_c_mode = false;
+
+        LoRaWANCredentials_t* credentials = radio_events.GetClassACredentials();
+
+        logInfo("Switching to class A (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+
+        std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
+        std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
+        std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
+
+        dot->setNetworkAddress(address);
+        dot->setNetworkSessionKey(nwkskey);
+        dot->setDataSessionKey(appskey);
+        dot->setClass("A");
+
+        logInfo("Switched to class A");
+    }
+    else {
+        logError("Cannot switch to class %c", cls);
+    }
+}
+
 int main() {
     pc.baud(115200);
+
+    Thread ev_thread(osPriorityNormal, 16 * 1024);
+    ev_thread.start(callback(&queue, &EventQueue::dispatch_forever));
 
     mts::MTSLog::setLogLevel(mts::MTSLog::INFO_LEVEL);
 
@@ -203,7 +253,13 @@ int main() {
         // sleep_wake_rtc_or_interrupt(10, deep_sleep); // automatically waits at least for next TX window according to duty cycle
 
         // @todo: in class A can go to deepsleep, in class C cannot
-        wait(sleep_time);
+        if (in_class_c_mode) {
+            // wait(sleep_time); <-- this should go back when we have real class C on TTN
+            continue; // for now just send as fast as possible
+        }
+        else {
+            sleep_wake_rtc_or_interrupt(10, deep_sleep);
+        }
     }
 
     return 0;
