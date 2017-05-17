@@ -95,10 +95,12 @@ void send_packet(UplinkMessage* message) {
     }
 
     // OK... soooooo we can only send in Class A
+    bool switched_creds = false;
     if (in_class_c_mode) {
         if (message->port != 5) { // exception because TTN does not have class C. Fake it on port 5...
             // switch to class A credentials
             set_class_a_creds();
+            switched_creds = true;
         }
     }
 
@@ -144,7 +146,7 @@ void send_packet(UplinkMessage* message) {
     }
 
     // switch back
-    if (in_class_c_mode) {
+    if (switched_creds) {
         // switch to class A credentials
         set_class_c_creds();
     }
