@@ -139,7 +139,7 @@ private:
                 }
 
                 frag_params.FragSession = info->RxBuffer[1];
-                frag_params.NbFrag = ( info->RxBuffer[2] << 8 ) + info->RxBuffer[3];
+                frag_params.NbFrag = ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                 frag_params.FragSize = info->RxBuffer[4] ;
                 frag_params.Encoding = info->RxBuffer[5];
                 frag_params.Redundancy = REDUNDANCYMAX-1;
@@ -169,8 +169,8 @@ private:
                     class_c_group_params.McAddr = (info->RxBuffer[5] << 24 ) + ( info->RxBuffer[4] << 16 ) + ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                     memcpy(class_c_group_params.McKey, info->RxBuffer + 6, 16);
 
-                    class_c_group_params.McCountMSB = (info->RxBuffer[22] << 8) + info->RxBuffer[23];
-                    class_c_group_params.Validity = (info->RxBuffer[24] << 24 ) + ( info->RxBuffer[25] << 16 ) + ( info->RxBuffer[26] << 8 ) + info->RxBuffer[27];
+                    class_c_group_params.McCountMSB = (info->RxBuffer[23] << 8) + info->RxBuffer[22];
+                    class_c_group_params.Validity = (info->RxBuffer[27] << 24 ) + ( info->RxBuffer[26] << 16 ) + ( info->RxBuffer[25] << 8 ) + info->RxBuffer[24];
 
                     logInfo("MC_GROUP_SETUP_REQ:");
                     printf("\tMcGroupIDHeader: %d\n", class_c_group_params.McGroupIDHeader);
@@ -182,8 +182,8 @@ private:
                     memcpy(class_c_credentials.DevAddr, &class_c_group_params.McAddr, 4);
 
                     // aes_128
-                    const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
-                    const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+                    const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[3], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[0], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+                    const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[3], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[0], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
                     mbedtls_aes_context ctx;
                     mbedtls_aes_setkey_enc(&ctx, class_c_group_params.McKey, 128);
@@ -206,10 +206,10 @@ private:
                 {
                     McClassCSessionParams_t class_c_session_params;
                     class_c_session_params.McGroupIDHeader = info->RxBuffer[1] & 0x03 ;
-                    class_c_session_params.TimeOut = info->RxBuffer[2] >> 4;
-                    class_c_session_params.TimeToStart = ((info->RxBuffer[2] & 0x0F ) << 16 ) + ( info->RxBuffer[3] << 8 ) +  info->RxBuffer[4];
+                    class_c_session_params.TimeOut = info->RxBuffer[4] >> 4;
+                    class_c_session_params.TimeToStart = ((info->RxBuffer[4] & 0x0F ) << 16 ) + ( info->RxBuffer[3] << 8 ) +  info->RxBuffer[2];
                     class_c_session_params.UlFCountRef = info->RxBuffer[5];
-                    class_c_session_params.DLFrequencyClassCSession = (info->RxBuffer[6] << 16 ) + ( info->RxBuffer[7] << 8 ) +  info->RxBuffer[8];
+                    class_c_session_params.DLFrequencyClassCSession = (info->RxBuffer[8] << 16 ) + ( info->RxBuffer[7] << 8 ) +  info->RxBuffer[6];
                     class_c_session_params.DataRateClassCSession  = info->RxBuffer[9];
 
                     printf("MC_CLASSC_SESSION_REQ came in...:\n");
@@ -235,7 +235,7 @@ private:
                     else if (class_c_session_params.UlFCountRef == uplinkEvents[1].uplinkCounter) {
                         ulEvent = uplinkEvents[1];
                     }
-                    else if (class_c_session_params.UlFCountRef == uplinkEvents[0].uplinkCounter) {
+                    else if (class_c_session_params.UlFCountRef == uplinkEvents[2].uplinkCounter) {
                         ulEvent = uplinkEvents[2];
                     }
                     else {
@@ -252,9 +252,9 @@ private:
                     ack->push_back(status);
 
                     // timetostart in seconds
-                    ack->push_back(switch_to_class_c_t >> 16 & 0xff);
-                    ack->push_back(switch_to_class_c_t >> 8 & 0xff);
                     ack->push_back(switch_to_class_c_t & 0xff);
+                    ack->push_back(switch_to_class_c_t >> 8 & 0xff);
+                    ack->push_back(switch_to_class_c_t >> 16 & 0xff);
 
                     send_msg_cb(200, ack);
                 }
