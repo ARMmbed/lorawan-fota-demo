@@ -44,6 +44,45 @@ AnalogIn lux(XBEE_AD0);
 vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
 static bool in_class_c_mode = false;
 
+void set_class_c_creds() {
+    LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
+
+    logInfo("Switching to class C (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+
+    // @todo: this is weird, ah well...
+    std::vector<uint8_t> address;
+    address.push_back(credentials->DevAddr[3]);
+    address.push_back(credentials->DevAddr[2]);
+    address.push_back(credentials->DevAddr[1]);
+    address.push_back(credentials->DevAddr[0]);
+    std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
+    std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
+
+    dot->setNetworkAddress(address);
+    dot->setNetworkSessionKey(nwkskey);
+    dot->setDataSessionKey(appskey);
+    // dot->setClass("C");
+
+    logInfo("Switched to class C");
+}
+
+void set_class_a_creds() {
+    LoRaWANCredentials_t* credentials = radio_events.GetClassACredentials();
+
+    logInfo("Switching to class A (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+
+    std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
+    std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
+    std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
+
+    dot->setNetworkAddress(address);
+    dot->setNetworkSessionKey(nwkskey);
+    dot->setDataSessionKey(appskey);
+    dot->setClass("A");
+
+    logInfo("Switched to class A");
+}
+
 void send_packet(UplinkMessage* message) {
     if (message_queue->size() > 0 && !message->is_mac) {
         logInfo("MAC messages in queue, dropping this packet");
@@ -53,6 +92,14 @@ void send_packet(UplinkMessage* message) {
     else {
         // otherwise, add to queue
         message_queue->push_back(message);
+    }
+
+    // OK... soooooo we can only send in Class A
+    if (in_class_c_mode) {
+        if (message->port != 5) { // exception because TTN does not have class C. Fake it on port 5...
+            // switch to class A credentials
+            set_class_a_creds();
+        }
     }
 
     // take the first item from the queue
@@ -95,6 +142,12 @@ void send_packet(UplinkMessage* message) {
         free(m->data);
         free(m);
     }
+
+    // switch back
+    if (in_class_c_mode) {
+        // switch to class A credentials
+        set_class_c_creds();
+    }
 }
 
 void send_mac_msg(uint8_t port, std::vector<uint8_t>* data) {
@@ -110,39 +163,11 @@ void class_switch(char cls) {
     // @todo; make enum
     if (cls == 'C') {
         in_class_c_mode = true;
-
-        LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
-
-        logInfo("Switching to class C (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
-
-        std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
-        std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
-        std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
-
-        dot->setNetworkAddress(address);
-        dot->setNetworkSessionKey(nwkskey);
-        dot->setDataSessionKey(appskey);
-        // dot->setClass("C");
-
-        logInfo("Switched to class C");
+        set_class_c_creds();
     }
     else if (cls == 'A') {
         in_class_c_mode = false;
-
-        LoRaWANCredentials_t* credentials = radio_events.GetClassACredentials();
-
-        logInfo("Switching to class A (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
-
-        std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
-        std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
-        std::vector<uint8_t> appskey(credentials->AppSKey, credentials->AppSKey + 16);
-
-        dot->setNetworkAddress(address);
-        dot->setNetworkSessionKey(nwkskey);
-        dot->setDataSessionKey(appskey);
-        dot->setClass("A");
-
-        logInfo("Switched to class A");
+        set_class_a_creds();
     }
     else {
         logError("Cannot switch to class %c", cls);
@@ -227,9 +252,11 @@ int main() {
         light = lux.read_u16();
 
         vector<uint8_t>* tx_data = new vector<uint8_t>();
-        tx_data->push_back((light >> 8) & 0xFF);
-        tx_data->push_back(light & 0xFF);
-        logInfo("light: %lu [0x%04X]", light, light);
+        if (!in_class_c_mode) {
+            tx_data->push_back((light >> 8) & 0xFF);
+            tx_data->push_back(light & 0xFF);
+            logInfo("light: %lu [0x%04X]", light, light);
+        }
 
         UplinkMessage* dummy = new UplinkMessage();
         dummy->port = 5;
@@ -258,7 +285,8 @@ int main() {
             continue; // for now just send as fast as possible
         }
         else {
-            sleep_wake_rtc_or_interrupt(10, deep_sleep);
+            wait(sleep_time); // @todo, wait for all frames to be processed before going to sleep. need a wakelock.
+            // sleep_wake_rtc_or_interrupt(10, deep_sleep);
         }
     }
 

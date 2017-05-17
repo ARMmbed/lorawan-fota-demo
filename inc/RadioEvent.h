@@ -164,7 +164,7 @@ private:
         switch (info->RxBuffer[0]) {
             case MC_GROUP_SETUP_REQ:
                 {
-                    // 020126011ea600112233445566778899aabbccddeeff0000000003e8
+                    // 0201a61e012600112233445566778899aabbccddeeff0000000003e8
                     class_c_group_params.McGroupIDHeader = info->RxBuffer[1];
                     class_c_group_params.McAddr = (info->RxBuffer[5] << 24 ) + ( info->RxBuffer[4] << 16 ) + ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                     memcpy(class_c_group_params.McKey, info->RxBuffer + 6, 16);
@@ -174,7 +174,7 @@ private:
 
                     logInfo("MC_GROUP_SETUP_REQ:");
                     printf("\tMcGroupIDHeader: %d\n", class_c_group_params.McGroupIDHeader);
-                    printf("\tMcAddr: %08x\n", class_c_group_params.McAddr);
+                    printf("\tMcAddr: %s\n", mts::Text::bin2hexString((uint8_t*)&class_c_group_params.McAddr, 4).c_str());
                     printf("\tMcKey: %s\n", mts::Text::bin2hexString(class_c_group_params.McKey, 16).c_str());
                     printf("\tMcCountMSB: %d\n", class_c_group_params.McCountMSB);
                     printf("\tValidity: %li\n", class_c_group_params.Validity);
@@ -227,6 +227,8 @@ private:
 
                     // @todo: switch back to class C after the timeout!
 
+                    bool switch_err = false;
+
                     // so time to start depends on the UlFCountRef...
                     UplinkEvent_t ulEvent;
                     if (class_c_session_params.UlFCountRef == uplinkEvents[0].uplinkCounter) {
@@ -239,22 +241,25 @@ private:
                         ulEvent = uplinkEvents[2];
                     }
                     else {
-                        logError("UlFCountRef not found in uplinkEvents array");
-                        status += 0b100;
+                        logError("UlFCountRef %d not found in uplinkEvents array", class_c_session_params.UlFCountRef);
+                        status += 0b00000100;
+                        switch_err = true;
                     }
-
-                    // going to switch to class C in... ulEvent.time + params.TimeToStart
-                    time_t switch_to_class_c_t = ulEvent.time + class_c_session_params.TimeToStart - time(NULL);
-                    logInfo("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
-
-                    class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
                     ack->push_back(status);
 
-                    // timetostart in seconds
-                    ack->push_back(switch_to_class_c_t & 0xff);
-                    ack->push_back(switch_to_class_c_t >> 8 & 0xff);
-                    ack->push_back(switch_to_class_c_t >> 16 & 0xff);
+                    // going to switch to class C in... ulEvent.time + params.TimeToStart
+                    if (!switch_err) {
+                        time_t switch_to_class_c_t = ulEvent.time + class_c_session_params.TimeToStart - time(NULL);
+                        logInfo("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
+
+                        class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
+
+                        // timetostart in seconds
+                        ack->push_back(switch_to_class_c_t & 0xff);
+                        ack->push_back(switch_to_class_c_t >> 8 & 0xff);
+                        ack->push_back(switch_to_class_c_t >> 16 & 0xff);
+                    }
 
                     send_msg_cb(200, ack);
                 }
