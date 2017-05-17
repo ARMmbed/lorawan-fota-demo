@@ -8,7 +8,6 @@ static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69,
 static uint8_t frequency_sub_band = 0;
 static bool public_network = true;
 static uint8_t ack = 0;
-static bool disable_duty_cycle = false;
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -20,6 +19,18 @@ mDot* dot = NULL;
 
 Serial pc(USBTX, USBRX);
 
+// fwd declaration
+void send_mac_msg(uint8_t port, vector<uint8_t>* data);
+
+// Custom event handler for automatically displaying RX data
+RadioEvent radio_events(&send_mac_msg);
+
+typedef struct {
+    uint8_t port;
+    bool is_mac;
+    std::vector<uint8_t>* data;
+} UplinkMessage;
+
 #if defined(TARGET_XDOT_L151CC)
 I2C i2c(I2C_SDA, I2C_SCL);
 ISL29011 lux(i2c);
@@ -27,21 +38,71 @@ ISL29011 lux(i2c);
 AnalogIn lux(XBEE_AD0);
 #endif
 
-void send_packet(std::vector<uint8_t> data) {
+vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
+
+void send_packet(UplinkMessage* message) {
+    if (message_queue->size() > 0 && !message->is_mac) {
+        logInfo("MAC messages in queue, dropping this packet");
+        free(message->data);
+        free(message);
+    }
+    else {
+        // otherwise, add to queue
+        message_queue->push_back(message);
+    }
+
+    // take the first item from the queue
+    UplinkMessage* m = message_queue->at(0);
+
+    printf("[INFO] Going to send a message. port=%d, data=", m->port);
+    for (size_t ix = 0; ix < m->data->size(); ix++) {
+        printf("%02x ", m->data->at(ix));
+    }
+    printf("\n");
+
     uint32_t ret;
 
-    ret = dot->send(data);
+    dot->setAppPort(m->port);
+
+    radio_events.OnTx(dot->getUpLinkCounter() + 1);
+
+    if (m->is_mac) {
+        dot->setAck(true);
+        ret = dot->send(*(m->data));
+        dot->setAck(false);
+    }
+    else {
+        dot->setAck(false);
+        ret = dot->send(*(m->data));
+    }
+
     if (ret != mDot::MDOT_OK) {
         logError("failed to send data to %s [%d][%s]", dot->getJoinMode() == mDot::PEER_TO_PEER ? "peer" : "gateway", ret, mDot::getReturnCodeString(ret).c_str());
     } else {
         logInfo("successfully sent data to %s", dot->getJoinMode() == mDot::PEER_TO_PEER ? "peer" : "gateway");
     }
+
+    // Message was sent, or was not mac message? remove from queue
+    if (ret == mDot::MDOT_OK || !m->is_mac) {
+        logInfo("Removing first item from the queue");
+
+        // remove message from the queue
+        message_queue->erase(message_queue->begin());
+        free(m->data);
+        free(m);
+    }
+}
+
+void send_mac_msg(uint8_t port, std::vector<uint8_t>* data) {
+    UplinkMessage* m = new UplinkMessage();
+    m->is_mac = true;
+    m->data = data;
+    m->port = port;
+
+    message_queue->push_back(m);
 }
 
 int main() {
-    // Custom event handler for automatically displaying RX data
-    RadioEvent events;
-
     pc.baud(115200);
 
     mts::MTSLog::setLogLevel(mts::MTSLog::INFO_LEVEL);
@@ -49,7 +110,7 @@ int main() {
     dot = mDot::getInstance();
 
     // attach the custom events handler
-    dot->setEvents(&events);
+    dot->setEvents(&radio_events);
 
     if (!dot->getStandbyFlag()) {
         logInfo("mbed-os library version: %d", MBED_LIBRARY_VERSION);
@@ -78,17 +139,14 @@ int main() {
         // for count = 3 and threshold = 5, the Dot will be considered disconnected after 15 missed packets in a row
         update_network_link_check_config(3, 5);
 
-        if (disable_duty_cycle) {
-            logInfo("disable duty cycle");
-            if (dot->setDisableDutyCycle(true) != mDot::MDOT_OK) {
-                logError("failed to disable duty cycle");
-            }
-        }
-
         logInfo("setting data rate to SF_7");
         if (dot->setTxDataRate(mDot::SF_7) != mDot::MDOT_OK) {
             logError("failed to set data rate");
         }
+
+        dot->setAdr(true);
+
+        dot->setDisableDutyCycle(true);
 
         // save changes to configuration
         logInfo("saving configuration");
@@ -107,36 +165,27 @@ int main() {
 
     while (true) {
         uint16_t light;
-        std::vector<uint8_t> tx_data;
 
         // join network if not joined
         if (!dot->getNetworkJoinStatus()) {
             join_network();
+
+            radio_events.OnClassAJoinSucceeded(dot->getNetworkAddress(), dot->getNetworkSessionKey(), dot->getDataSessionKey());
         }
 
-#if defined(TARGET_XDOT_L151CC)
-        // configure the ISL29011 sensor on the xDot-DK for continuous ambient light sampling, 16 bit conversion, and maximum range
-        lux.setMode(ISL29011::ALS_CONT);
-        lux.setResolution(ISL29011::ADC_16BIT);
-        lux.setRange(ISL29011::RNG_64000);
-
-        // get the latest light sample and send it to the gateway
-        light = lux.getData();
-        tx_data.push_back((light >> 8) & 0xFF);
-        tx_data.push_back(light & 0xFF);
-        logInfo("light: %lu [0x%04X]", light, light);
-        send_packet(tx_data);
-
-        // put the LSL29011 ambient light sensor into a low power state
-        lux.setMode(ISL29011::PWR_DOWN);
-#else
         // get some dummy data and send it to the gateway
         light = lux.read_u16();
-        tx_data.push_back((light >> 8) & 0xFF);
-        tx_data.push_back(light & 0xFF);
+
+        vector<uint8_t>* tx_data = new vector<uint8_t>();
+        tx_data->push_back((light >> 8) & 0xFF);
+        tx_data->push_back(light & 0xFF);
         logInfo("light: %lu [0x%04X]", light, light);
-        send_packet(tx_data);
-#endif
+
+        UplinkMessage* dummy = new UplinkMessage();
+        dummy->port = 5;
+        dummy->data = tx_data;
+
+        send_packet(dummy);
 
         // if going into deepsleep mode, save the session so we don't need to join again after waking up
         // not necessary if going into sleep mode since RAM is retained
@@ -145,10 +194,16 @@ int main() {
             dot->saveNetworkSession();
         }
 
+        uint32_t sleep_time = calculate_actual_sleep_time(10);
+        logInfo("going to wait %d seconds for duty-cycle...", sleep_time);
+
         // ONLY ONE of the three functions below should be uncommented depending on the desired wakeup method
         //sleep_wake_rtc_only(deep_sleep);
         //sleep_wake_interrupt_only(deep_sleep);
-        sleep_wake_rtc_or_interrupt(1, deep_sleep); // automatically waits at least for next TX window according to duty cycle
+        // sleep_wake_rtc_or_interrupt(10, deep_sleep); // automatically waits at least for next TX window according to duty cycle
+
+        // @todo: in class A can go to deepsleep, in class C cannot
+        wait(sleep_time);
     }
 
     return 0;
