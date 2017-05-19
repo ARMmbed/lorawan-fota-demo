@@ -9,4 +9,3 @@ Connect radio and target MCU over UART D1/D0.
 ## More info
 
 Ask Jan Jongboom.
-

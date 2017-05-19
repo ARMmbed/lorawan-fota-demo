@@ -44,7 +44,7 @@ Description: 	Firmware update over the air with LoRa proof of concept
 #define DATA_BLOCK_AUTH_REQ  0x05
 #define DATA_BLOCK_AUTH_ANS  0x05
 #define DATA_FRAGMENT  0x08
-#define FRAG_SESSION_SETUP_REQ_LENGTH 0x6
+#define FRAG_SESSION_SETUP_REQ_LENGTH 0x7
 
 #define  FRAG_SESSION_SETUP_ANS_LENGTH 0x2
 #define  DATA_BLOCK_AUTH_REQ_LENGTH 0xa
@@ -164,6 +164,8 @@ typedef struct sFTMPackageParams
            * during the coming multicast fragmentation session
      */
     uint16_t Redundancy;
+
+    uint8_t Padding;
 
 }FTMPackageParams_t;
 

@@ -16,6 +16,12 @@ typedef struct {
     uint8_t DevAddr[4];
     uint8_t AppSKey[16];
     uint8_t NwkSKey[16];
+
+    uint32_t UplinkCounter;
+    uint32_t DownlinkCounter;
+
+    uint8_t TxDataRate;
+    uint8_t RxDataRate;
 } LoRaWANCredentials_t;
 
 class RadioEvent : public mDotEvent
@@ -61,17 +67,23 @@ public:
         printf("\t[2] %li %li\n", uplinkEvents[2].uplinkCounter, uplinkEvents[2].time);
     }
 
-    void OnClassAJoinSucceeded(vector<uint8_t> devAddr, vector<uint8_t> networkSessionKey, vector<uint8_t> appSessionKey) {
-        memcpy(class_a_credentials.DevAddr, &devAddr[0], 4);
-        memcpy(class_a_credentials.NwkSKey, &networkSessionKey[0], 16);
-        memcpy(class_a_credentials.AppSKey, &appSessionKey[0], 16);
+    void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
+        UpdateClassACredentials(credentials);
 
         logInfo("ClassAJoinSucceeded");
         printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_a_credentials.DevAddr, 4).c_str());
         printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_a_credentials.NwkSKey, 16).c_str());
         printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_a_credentials.AppSKey, 16).c_str());
+        printf("\tUplinkCounter: %li\n", class_a_credentials.UplinkCounter);
+        printf("\tDownlinkCounter: %li\n", class_a_credentials.DownlinkCounter);
+        printf("\tTxDataRate: %d\n", class_a_credentials.TxDataRate);
+        printf("\tRxDataRate: %d\n", class_a_credentials.RxDataRate);
 
         target->putc(0x03); // JoinAccept message through to target MCU
+    }
+
+    void UpdateClassACredentials(LoRaWANCredentials_t* credentials) {
+        memcpy(&class_a_credentials, credentials, sizeof(LoRaWANCredentials_t));
     }
 
     LoRaWANCredentials_t* GetClassACredentials() {
@@ -138,10 +150,13 @@ private:
                     return;
                 }
 
+                // @todo: fragsession is bit 5 and 6 on byte 1
+                // @todo: extract mc group from byte 1
                 frag_params.FragSession = info->RxBuffer[1];
                 frag_params.NbFrag = ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                 frag_params.FragSize = info->RxBuffer[4] ;
                 frag_params.Encoding = info->RxBuffer[5];
+                frag_params.Padding = info->RxBuffer[6];
                 frag_params.Redundancy = REDUNDANCYMAX-1;
 
                 logInfo("FRAG_SESSION_SETUP_REQ");
@@ -150,10 +165,11 @@ private:
                 printf("\tFragSize: %d\n", frag_params.FragSize);
                 printf("\tEncoding: %d\n", frag_params.Encoding);
                 printf("\tRedundancy: %d\n", frag_params.Redundancy);
+                printf("\tPadding: %d\n", frag_params.Padding);
 
                 std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                 ack->push_back(FRAG_SESSION_SETUP_ANS);
-                ack->push_back(frag_params.FragSession);
+                ack->push_back(0b01000000);
                 send_msg_cb(201, ack);
             }
             break;
@@ -219,6 +235,14 @@ private:
                     printf("\tUlFCountRef: %d\n", class_c_session_params.UlFCountRef);
                     printf("\tDLFrequencyClassCSession: %li\n", class_c_session_params.DLFrequencyClassCSession);
                     printf("\tDataRateClassCSession: %d\n", class_c_session_params.DataRateClassCSession);
+
+                    class_c_credentials.TxDataRate = class_c_session_params.DataRateClassCSession;
+                    class_c_credentials.RxDataRate = class_c_session_params.DataRateClassCSession;
+
+                    class_c_credentials.UplinkCounter = 0;
+                    class_c_credentials.DownlinkCounter = 0;
+
+                    // @todo: set frequency
 
                     std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                     ack->push_back(MC_CLASSC_SESSION_ANS);

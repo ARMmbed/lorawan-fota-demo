@@ -44,6 +44,18 @@ AnalogIn lux(XBEE_AD0);
 vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
 static bool in_class_c_mode = false;
 
+void get_current_credentials(LoRaWANCredentials_t* creds) {
+    memcpy(creds->DevAddr, &(dot->getNetworkAddress()[0]), 4);
+    memcpy(creds->NwkSKey, &(dot->getNetworkSessionKey()[0]), 16);
+    memcpy(creds->AppSKey, &(dot->getDataSessionKey()[0]), 16);
+
+    creds->UplinkCounter = dot->getUpLinkCounter();
+    creds->DownlinkCounter = dot->getDownLinkCounter();
+
+    creds->TxDataRate = dot->getTxDataRate();
+    creds->RxDataRate = dot->getRxDataRate();
+}
+
 void set_class_c_creds() {
     LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
 
@@ -61,6 +73,15 @@ void set_class_c_creds() {
     dot->setNetworkAddress(address);
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
+
+    // dot->setTxDataRate(credentials->TxDataRate);
+    // dot->setRxDataRate(credentials->RxDataRate);
+
+    dot->setUpLinkCounter(credentials->UplinkCounter);
+    dot->setDownLinkCounter(credentials->DownlinkCounter);
+
+    update_network_link_check_config(0, 0);
+
     // dot->setClass("C");
 
     logInfo("Switched to class C");
@@ -78,6 +99,15 @@ void set_class_a_creds() {
     dot->setNetworkAddress(address);
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
+
+    // dot->setTxDataRate(credentials->TxDataRate);
+    // dot->setRxDataRate(credentials->RxDataRate);
+
+    dot->setUpLinkCounter(credentials->UplinkCounter);
+    dot->setDownLinkCounter(credentials->DownlinkCounter);
+
+    update_network_link_check_config(3, 5);
+
     dot->setClass("A");
 
     logInfo("Switched to class A");
@@ -94,18 +124,18 @@ void send_packet(UplinkMessage* message) {
         message_queue->push_back(message);
     }
 
+    // take the first item from the queue
+    UplinkMessage* m = message_queue->at(0);
+
     // OK... soooooo we can only send in Class A
     bool switched_creds = false;
     if (in_class_c_mode) {
-        if (message->port != 5) { // exception because TTN does not have class C. Fake it on port 5...
+        if (m->port != 5) { // exception because TTN does not have class C. Fake it on port 5...
             // switch to class A credentials
             set_class_a_creds();
             switched_creds = true;
         }
     }
-
-    // take the first item from the queue
-    UplinkMessage* m = message_queue->at(0);
 
     printf("[INFO] Going to send a message. port=%d, data=", m->port);
     for (size_t ix = 0; ix < m->data->size(); ix++) {
@@ -162,6 +192,15 @@ void send_mac_msg(uint8_t port, std::vector<uint8_t>* data) {
 }
 
 void class_switch(char cls) {
+    logInfo("class_switch to %c", cls);
+
+    // in class A mode? then back up credentials and counters...
+    if (!in_class_c_mode) {
+        LoRaWANCredentials_t creds;
+        get_current_credentials(&creds);
+        radio_events.UpdateClassACredentials(&creds);
+    }
+
     // @todo; make enum
     if (cls == 'C') {
         in_class_c_mode = true;
@@ -247,7 +286,9 @@ int main() {
         if (!dot->getNetworkJoinStatus()) {
             join_network();
 
-            radio_events.OnClassAJoinSucceeded(dot->getNetworkAddress(), dot->getNetworkSessionKey(), dot->getDataSessionKey());
+            LoRaWANCredentials_t creds;
+            get_current_credentials(&creds);
+            radio_events.OnClassAJoinSucceeded(&creds);
         }
 
         // get some dummy data and send it to the gateway
