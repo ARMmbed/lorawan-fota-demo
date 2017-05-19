@@ -253,6 +253,10 @@ private:
                         time_t switch_to_class_c_t = ulEvent.time + class_c_session_params.TimeToStart - time(NULL);
                         logInfo("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
 
+                        if (switch_to_class_c_t < 0) {
+                            switch_to_class_c_t = 1;
+                        }
+
                         class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
                         // timetostart in seconds
