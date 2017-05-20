@@ -35,7 +35,7 @@ public:
     ) : event_queue(aevent_queue), send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb)
     {
         target = new RawSerial(D1, D0);
-        target->baud(57600);
+        target->baud(9600);
 
         read_from_uart_thread.start(callback(this, &RadioEvent::uart_main));
     }
@@ -57,20 +57,27 @@ public:
         // move all one up
         uplinkEvents[0] = uplinkEvents[1];
         uplinkEvents[1] = uplinkEvents[2];
+        uplinkEvents[2] = uplinkEvents[3];
+        uplinkEvents[3] = uplinkEvents[4];
+        uplinkEvents[4] = uplinkEvents[5];
+        uplinkEvents[5] = uplinkEvents[6];
+        uplinkEvents[6] = uplinkEvents[7];
+        uplinkEvents[7] = uplinkEvents[8];
+        uplinkEvents[8] = uplinkEvents[9];
 
-        uplinkEvents[2].uplinkCounter = uplinkCounter;
-        uplinkEvents[2].time = time(NULL);
+        uplinkEvents[9].uplinkCounter = uplinkCounter;
+        uplinkEvents[9].time = time(NULL);
 
-        logInfo("UplinkEvents are:");
-        printf("\t[0] %li %li\n", uplinkEvents[0].uplinkCounter, uplinkEvents[0].time);
-        printf("\t[1] %li %li\n", uplinkEvents[1].uplinkCounter, uplinkEvents[1].time);
-        printf("\t[2] %li %li\n", uplinkEvents[2].uplinkCounter, uplinkEvents[2].time);
+        // logInfo("UplinkEvents are:");
+        // printf("\t[0] %li %li\n", uplinkEvents[0].uplinkCounter, uplinkEvents[0].time);
+        // printf("\t[1] %li %li\n", uplinkEvents[1].uplinkCounter, uplinkEvents[1].time);
+        // printf("\t[2] %li %li\n", uplinkEvents[2].uplinkCounter, uplinkEvents[2].time);
     }
 
     void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
         UpdateClassACredentials(credentials);
 
-        logInfo("ClassAJoinSucceeded");
+        printf("ClassAJoinSucceeded:\n");
         printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_a_credentials.DevAddr, 4).c_str());
         printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_a_credentials.NwkSKey, 16).c_str());
         printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_a_credentials.AppSKey, 16).c_str());
@@ -79,7 +86,10 @@ public:
         printf("\tTxDataRate: %d\n", class_a_credentials.TxDataRate);
         printf("\tRxDataRate: %d\n", class_a_credentials.RxDataRate);
 
-        target->putc(0x03); // JoinAccept message through to target MCU
+        char* data = (char*)malloc(1);
+        data[0] = 0x03;
+
+        sendOverUart(data, 1); // JoinAccept message through to target MCU
     }
 
     void UpdateClassACredentials(LoRaWANCredentials_t* credentials) {
@@ -103,9 +113,8 @@ private:
         while (1) {
             char c = target->getc();
 
-
             if (c == '\n') {
-                logInfo("UART RX: %s", mts::Text::bin2hexString((uint8_t*)serial_buffer, serial_ix).c_str());
+                printf("Received from target MCU: %s\n", mts::Text::bin2hexString((uint8_t*)serial_buffer, serial_ix).c_str());
 
                 switch (serial_buffer[0]) {
                     case 0x01: // Datablock is complete
@@ -141,6 +150,19 @@ private:
         }
     }
 
+    void sendOverUart(char* data, size_t size) {
+        printf("Sending to target MCU (%li bytes): [ ", size);
+        for (size_t ix = 0; ix < size; ix++) {
+            printf("%02x ", data[ix]);
+        }
+        printf("]\n\n");
+
+        for (size_t ix = 0; ix < size; ix++) {
+            target->putc(data[ix]);
+        }
+        free(data);
+    }
+
     void processFragmentationMacCommand(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
         switch(info->RxBuffer[0]) {
             case FRAG_SESSION_SETUP_REQ:
@@ -159,7 +181,7 @@ private:
                 frag_params.Padding = info->RxBuffer[6];
                 frag_params.Redundancy = REDUNDANCYMAX-1;
 
-                logInfo("FRAG_SESSION_SETUP_REQ");
+                printf("FRAG_SESSION_SETUP_REQ:\n");
                 printf("\tFragSession: %d\n", frag_params.FragSession);
                 printf("\tNbFrag: %d\n", frag_params.NbFrag);
                 printf("\tFragSize: %d\n", frag_params.FragSize);
@@ -188,7 +210,7 @@ private:
                     class_c_group_params.McCountMSB = (info->RxBuffer[23] << 8) + info->RxBuffer[22];
                     class_c_group_params.Validity = (info->RxBuffer[27] << 24 ) + ( info->RxBuffer[26] << 16 ) + ( info->RxBuffer[25] << 8 ) + info->RxBuffer[24];
 
-                    logInfo("MC_GROUP_SETUP_REQ:");
+                    printf("MC_GROUP_SETUP_REQ:\n");
                     printf("\tMcGroupIDHeader: %d\n", class_c_group_params.McGroupIDHeader);
                     printf("\tMcAddr: %s\n", mts::Text::bin2hexString((uint8_t*)&class_c_group_params.McAddr, 4).c_str());
                     printf("\tMcKey: %s\n", mts::Text::bin2hexString(class_c_group_params.McKey, 16).c_str());
@@ -198,15 +220,15 @@ private:
                     memcpy(class_c_credentials.DevAddr, &class_c_group_params.McAddr, 4);
 
                     // aes_128
-                    const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[3], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[0], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
-                    const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[3], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[0], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+                    const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+                    const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
                     mbedtls_aes_context ctx;
                     mbedtls_aes_setkey_enc(&ctx, class_c_group_params.McKey, 128);
                     mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, nwk_input, class_c_credentials.NwkSKey);
                     mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, app_input, class_c_credentials.AppSKey);
 
-                    logInfo("ClassCCredentials");
+                    printf("ClassCCredentials:\n");
                     printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_c_credentials.DevAddr, 4).c_str());
                     printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.NwkSKey, 16).c_str());
                     printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.AppSKey, 16).c_str());
@@ -228,7 +250,7 @@ private:
                     class_c_session_params.DLFrequencyClassCSession = (info->RxBuffer[8] << 16 ) + ( info->RxBuffer[7] << 8 ) +  info->RxBuffer[6];
                     class_c_session_params.DataRateClassCSession  = info->RxBuffer[9];
 
-                    printf("MC_CLASSC_SESSION_REQ came in...:\n");
+                    printf("MC_CLASSC_SESSION_REQ:\n");
                     printf("\tMcGroupIDHeader: %d\n", class_c_session_params.McGroupIDHeader);
                     printf("\tTimeOut: %d\n", class_c_session_params.TimeOut);
                     printf("\tTimeToStart: %li\n", class_c_session_params.TimeToStart);
@@ -255,16 +277,16 @@ private:
 
                     // so time to start depends on the UlFCountRef...
                     UplinkEvent_t ulEvent;
-                    if (class_c_session_params.UlFCountRef == uplinkEvents[0].uplinkCounter) {
-                        ulEvent = uplinkEvents[0];
+                    bool foundUlEvent = false;
+
+                    for (size_t ix = 0; ix < 10; ix++) {
+                        if (class_c_session_params.UlFCountRef == uplinkEvents[ix].uplinkCounter) {
+                            ulEvent = uplinkEvents[ix];
+                            foundUlEvent = true;
+                        }
                     }
-                    else if (class_c_session_params.UlFCountRef == uplinkEvents[1].uplinkCounter) {
-                        ulEvent = uplinkEvents[1];
-                    }
-                    else if (class_c_session_params.UlFCountRef == uplinkEvents[2].uplinkCounter) {
-                        ulEvent = uplinkEvents[2];
-                    }
-                    else {
+
+                    if (!foundUlEvent) {
                         logError("UlFCountRef %d not found in uplinkEvents array", class_c_session_params.UlFCountRef);
                         status += 0b00000100;
                         switch_err = true;
@@ -275,7 +297,7 @@ private:
                     // going to switch to class C in... ulEvent.time + params.TimeToStart
                     if (!switch_err) {
                         time_t switch_to_class_c_t = ulEvent.time + class_c_session_params.TimeToStart - time(NULL);
-                        logInfo("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
+                        printf("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
 
                         if (switch_to_class_c_t < 0) {
                             switch_to_class_c_t = 1;
@@ -309,7 +331,6 @@ private:
     }
 
     void HandleMacEvent(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
-
         if (mts::MTSLog::getLogLevel() == mts::MTSLog::TRACE_LEVEL) {
             std::string msg = "OK";
             switch (info->Status) {
@@ -354,18 +375,8 @@ private:
             logDebug("Rx %d bytes", info->RxBufferSize);
             if (info->RxBufferSize > 0) {
                 // Forward the data to the target MCU
-                logInfo("PacketRx port=%d, size=%d, rssi=%d, FPending=%d", info->RxPort, info->RxBufferSize, info->RxRssi, 0);
-                logInfo("Rx data: %s", mts::Text::bin2hexString(info->RxBuffer, info->RxBufferSize).c_str());
-
-                target->putc(0x01); // msg ID
-                target->putc(info->RxPort);
-                target->putc((info->RxBufferSize << 8) & 0xff);
-                target->putc(info->RxBufferSize & 0xff);
-                target->putc(0 /* FPending 0 for now... Not in this info struct */);
-
-                for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
-                    target->putc(info->RxBuffer[ix]);
-                }
+                // logInfo("PacketRx port=%d, size=%d, rssi=%d, FPending=%d", info->RxPort, info->RxBufferSize, info->RxRssi, 0);
+                // logInfo("Rx data: %s", mts::Text::bin2hexString(info->RxBuffer, info->RxBufferSize).c_str());
 
                 // Process MAC events ourselves
                 if (info->RxPort == 200) {
@@ -375,6 +386,20 @@ private:
                     processFragmentationMacCommand(flags, info);
                 }
 
+                size_t data_size = 1 + 1 + 2 + 1 + info->RxBufferSize;
+                char* data = (char*)malloc(data_size);
+
+                data[0] = (0x01); // msg ID
+                data[1] = (info->RxPort);
+                data[2] = ((info->RxBufferSize << 8) & 0xff);
+                data[3] = (info->RxBufferSize & 0xff);
+                data[4] = (0 /* FPending 0 for now... Not in this info struct */);
+
+                for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
+                    data[5 + ix] = info->RxBuffer[ix];
+                }
+
+                sendOverUart(data, data_size); // Fwd to target MCU
             }
         }
     }
@@ -384,7 +409,7 @@ private:
     EventQueue* event_queue;
     Callback<void(uint8_t, std::vector<uint8_t>*)> send_msg_cb;
     Callback<void(char)> class_switch_cb;
-    UplinkEvent_t uplinkEvents[3];
+    UplinkEvent_t uplinkEvents[10];
 
     McClassCSessionParams_t class_c_session_params;
     McGroupSetParams_t class_c_group_params;

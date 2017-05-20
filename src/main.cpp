@@ -9,7 +9,7 @@ static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x3D, 0xAA }
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 0;
 static bool public_network = true;
-static uint8_t ack = 0;
+static uint8_t ack = 1;
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -59,7 +59,7 @@ void get_current_credentials(LoRaWANCredentials_t* creds) {
 void set_class_c_creds() {
     LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
 
-    logInfo("Switching to class C (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+    // logInfo("Switching to class C (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
 
     // @todo: this is weird, ah well...
     std::vector<uint8_t> address;
@@ -84,13 +84,13 @@ void set_class_c_creds() {
 
     // dot->setClass("C");
 
-    logInfo("Switched to class C");
+    printf("Switched to class C\n");
 }
 
 void set_class_a_creds() {
     LoRaWANCredentials_t* credentials = radio_events.GetClassACredentials();
 
-    logInfo("Switching to class A (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
+    // logInfo("Switching to class A (DevAddr=%s)", mts::Text::bin2hexString(credentials->DevAddr, 4).c_str());
 
     std::vector<uint8_t> address(credentials->DevAddr, credentials->DevAddr + 4);
     std::vector<uint8_t> nwkskey(credentials->NwkSKey, credentials->NwkSKey + 16);
@@ -110,12 +110,12 @@ void set_class_a_creds() {
 
     dot->setClass("A");
 
-    logInfo("Switched to class A");
+    printf("Switched to class A\n");
 }
 
 void send_packet(UplinkMessage* message) {
     if (message_queue->size() > 0 && !message->is_mac) {
-        logInfo("MAC messages in queue, dropping this packet");
+        // logInfo("MAC messages in queue, dropping this packet");
         free(message->data);
         free(message);
     }
@@ -137,15 +137,17 @@ void send_packet(UplinkMessage* message) {
         }
     }
 
-    printf("[INFO] Going to send a message. port=%d, data=", m->port);
-    for (size_t ix = 0; ix < m->data->size(); ix++) {
-        printf("%02x ", m->data->at(ix));
-    }
-    printf("\n");
+    dot->setAppPort(m->port);
+    dot->setTxDataRate(mDot::SF_7);
+    dot->setRxDataRate(mDot::SF_7);
+
+    // printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
+    // for (size_t ix = 0; ix < m->data->size(); ix++) {
+    //     printf("%02x ", m->data->at(ix));
+    // }
+    // printf("\n");
 
     uint32_t ret;
-
-    dot->setAppPort(m->port);
 
     radio_events.OnTx(dot->getUpLinkCounter() + 1);
 
@@ -167,13 +169,21 @@ void send_packet(UplinkMessage* message) {
 
     // Message was sent, or was not mac message? remove from queue
     if (ret == mDot::MDOT_OK || !m->is_mac) {
-        logInfo("Removing first item from the queue");
+        // logInfo("Removing first item from the queue");
 
         // remove message from the queue
         message_queue->erase(message_queue->begin());
         free(m->data);
         free(m);
     }
+
+    // update credentials with the new counter
+    LoRaWANCredentials_t* creds = in_class_c_mode ?
+        radio_events.GetClassCCredentials() :
+        radio_events.GetClassACredentials();
+
+    creds->UplinkCounter = dot->getUpLinkCounter();
+    creds->DownlinkCounter = dot->getDownLinkCounter();
 
     // switch back
     if (switched_creds) {
@@ -236,9 +246,6 @@ int main() {
         dot->resetConfig();
         dot->resetNetworkSession();
 
-        // make sure library logging is turned on
-        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
-
         // update configuration if necessary
         if (dot->getJoinMode() != mDot::OTA) {
             logInfo("changing network join mode to OTA");
@@ -260,7 +267,7 @@ int main() {
             logError("failed to set data rate");
         }
 
-        dot->setAdr(true);
+        dot->setAdr(false);
 
         dot->setDisableDutyCycle(true);
 
@@ -272,6 +279,8 @@ int main() {
 
         // display configuration
         display_config();
+
+        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep
@@ -298,7 +307,7 @@ int main() {
         if (!in_class_c_mode) {
             tx_data->push_back((light >> 8) & 0xFF);
             tx_data->push_back(light & 0xFF);
-            logInfo("light: %lu [0x%04X]", light, light);
+            // logInfo("light: %lu [0x%04X]", light, light);
         }
 
         UplinkMessage* dummy = new UplinkMessage();
@@ -310,12 +319,12 @@ int main() {
         // if going into deepsleep mode, save the session so we don't need to join again after waking up
         // not necessary if going into sleep mode since RAM is retained
         if (deep_sleep) {
-            logInfo("saving network session to NVM");
+            // logInfo("saving network session to NVM");
             dot->saveNetworkSession();
         }
 
         uint32_t sleep_time = calculate_actual_sleep_time(10);
-        logInfo("going to wait %d seconds for duty-cycle...", sleep_time);
+        // logInfo("going to wait %d seconds for duty-cycle...", sleep_time);
 
         // ONLY ONE of the three functions below should be uncommented depending on the desired wakeup method
         //sleep_wake_rtc_only(deep_sleep);
