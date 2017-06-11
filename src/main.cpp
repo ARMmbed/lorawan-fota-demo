@@ -76,9 +76,21 @@ void set_class_c_creds() {
 
     update_network_link_check_config(0, 0);
 
+    // fake MAC command to switch to DR5
+    std::vector<uint8_t> mac_cmd;
+    mac_cmd.push_back(0x05);
+    mac_cmd.push_back(credentials->RxDataRate);
+    // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
+    mac_cmd.push_back(0xd2);
+    mac_cmd.push_back(0xad);
+    mac_cmd.push_back(0x84);
+    dot->injectMacCommand(mac_cmd);
+
     dot->setClass("C");
 
     printf("Switched to class C\n");
+
+    radio_events.switchedToClassC();
 }
 
 void set_class_a_creds() {

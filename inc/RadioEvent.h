@@ -38,7 +38,7 @@ public:
         read_from_uart_thread = new Thread(osPriorityNormal, 1 * 1024);
 
         target = new RawSerial(PA_9, PA_10);
-        target->baud(9600);
+        target->baud(9600*4);
 
         read_from_uart_thread->start(callback(this, &RadioEvent::uart_main));
     }
@@ -77,6 +77,13 @@ public:
         // printf("\t[0] %li %li\n", uplinkEvents[0].uplinkCounter, uplinkEvents[0].time);
         // printf("\t[1] %li %li\n", uplinkEvents[1].uplinkCounter, uplinkEvents[1].time);
         // printf("\t[2] %li %li\n", uplinkEvents[2].uplinkCounter, uplinkEvents[2].time);
+    }
+
+    void switchedToClassC() {
+        char* data = (char*)malloc(1);
+        data[0] = 0x09;
+
+        sendOverUart(data, 1); // Class C mode
     }
 
     void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
@@ -172,11 +179,11 @@ private:
     }
 
     void sendOverUart(char* data, size_t size) {
-        printf("Sending to target MCU (%li bytes): [ ", size);
-        for (size_t ix = 0; ix < size; ix++) {
-            printf("%02x ", data[ix]);
-        }
-        printf("]\n\n");
+        // printf("Sending to target MCU (%li bytes): [ ", size);
+        // for (size_t ix = 0; ix < size; ix++) {
+        //     printf("%02x ", data[ix]);
+        // }
+        // printf("]\n\n");
 
         for (size_t ix = 0; ix < size; ix++) {
             target->putc(data[ix]);
