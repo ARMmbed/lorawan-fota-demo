@@ -1,10 +1,11 @@
 #ifndef __RADIO_EVENT_H__
 #define __RADIO_EVENT_H__
 
+#include "mbed.h"
 #include "dot_util.h"
 #include "mDotEvent.h"
 #include "ProtocolLayer.h"
-#include "aes.h"
+// #include "aes.h"
 #include <sys/time.h>
 
 typedef struct {
@@ -29,15 +30,17 @@ class RadioEvent : public mDotEvent
 
 public:
     RadioEvent(
-        EventQueue* aevent_queue,
+        // EventQueue* aevent_queue,
         Callback<void(uint8_t, std::vector<uint8_t>*)> asend_msg_cb,
         Callback<void(char)> aclass_switch_cb
-    ) : event_queue(aevent_queue), send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb)
+    ) : /*event_queue(aevent_queue), */send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb)
     {
-        target = new RawSerial(D1, D0);
+        read_from_uart_thread = new Thread(osPriorityNormal, 1 * 1024);
+
+        target = new RawSerial(PA_9, PA_10);
         target->baud(9600);
 
-        read_from_uart_thread.start(callback(this, &RadioEvent::uart_main));
+        read_from_uart_thread->start(callback(this, &RadioEvent::uart_main));
     }
 
     virtual ~RadioEvent() {}
@@ -49,8 +52,10 @@ public:
      * \param [IN] info  Details about MAC events occurred
      */
     virtual void MacEvent(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
+        HandleMacEvent(flags, info);
+
         // Process on the events thread which has bigger stack
-        event_queue->call(callback(this, &RadioEvent::HandleMacEvent), flags, info);
+        // event_queue->call(callback(this, &RadioEvent::HandleMacEvent), flags, info);
     }
 
     void OnTx(uint32_t uplinkCounter) {
@@ -118,26 +123,42 @@ private:
 
                 switch (serial_buffer[0]) {
                     case 0x01: // Datablock is complete
-                    // 1 byte FragIndex
-                    // 8 bytes BlockHash
+                    {
+                        // 1 byte FragIndex
+                        // 8 bytes BlockHash
 
-                    // Switch to class A...
-                    InvokeClassASwitch();
+                        // Switch to class A...
+                        InvokeClassASwitch();
 
-                    // Then queue the DataBlockAuthReq
-                    std::vector<uint8_t>* ack = new std::vector<uint8_t>();
-                    ack->push_back(DATA_BLOCK_AUTH_REQ);
-                    ack->push_back(serial_buffer[2]); // FragIndex
-                    ack->push_back(serial_buffer[3]); // BlockHash
-                    ack->push_back(serial_buffer[4]); // BlockHash
-                    ack->push_back(serial_buffer[5]); // BlockHash
-                    ack->push_back(serial_buffer[6]); // BlockHash
-                    ack->push_back(serial_buffer[7]); // BlockHash
-                    ack->push_back(serial_buffer[8]); // BlockHash
-                    ack->push_back(serial_buffer[9]); // BlockHash
-                    ack->push_back(serial_buffer[10]); // BlockHash
-                    send_msg_cb(201, ack);
-                    break;
+                        // Then queue the DataBlockAuthReq
+                        std::vector<uint8_t>* ack = new std::vector<uint8_t>();
+                        ack->push_back(DATA_BLOCK_AUTH_REQ);
+                        ack->push_back(serial_buffer[2]); // FragIndex
+                        ack->push_back(serial_buffer[3]); // BlockHash
+                        ack->push_back(serial_buffer[4]); // BlockHash
+                        ack->push_back(serial_buffer[5]); // BlockHash
+                        ack->push_back(serial_buffer[6]); // BlockHash
+                        ack->push_back(serial_buffer[7]); // BlockHash
+                        ack->push_back(serial_buffer[8]); // BlockHash
+                        ack->push_back(serial_buffer[9]); // BlockHash
+                        ack->push_back(serial_buffer[10]); // BlockHash
+                        send_msg_cb(201, ack);
+                        break;
+                    }
+
+                    case 0x08: // Key sign response
+                    {
+
+                        memcpy(class_c_credentials.NwkSKey, serial_buffer + 1, 16);
+                        memcpy(class_c_credentials.AppSKey, serial_buffer + 17, 16);
+
+                        printf("ClassCCredentials (AES Key Sign Response):\n");
+                        printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_c_credentials.DevAddr, 4).c_str());
+                        printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.NwkSKey, 16).c_str());
+                        printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.AppSKey, 16).c_str());
+
+                        break;
+                    }
                 }
 
                 memset(serial_buffer, 0, sizeof(serial_buffer));
@@ -219,19 +240,27 @@ private:
 
                     memcpy(class_c_credentials.DevAddr, &class_c_group_params.McAddr, 4);
 
-                    // aes_128
+                    // aes_128, cannot run on xdot because memory limitations
                     const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
                     const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
-                    mbedtls_aes_context ctx;
-                    mbedtls_aes_setkey_enc(&ctx, class_c_group_params.McKey, 128);
-                    mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, nwk_input, class_c_credentials.NwkSKey);
-                    mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, app_input, class_c_credentials.AppSKey);
+                    char* data = (char*)malloc(1 + (16 * 3));
+                    data[0] = 0x08;
+                    memcpy(data + 1, class_c_group_params.McKey, 16);
+                    memcpy(data + 1 + 16, nwk_input, 16);
+                    memcpy(data + 1 + 16 + 16, app_input, 16);
+
+                    sendOverUart(data, 1 + (16 * 3)); // AES-128 request
+
+                    // mbedtls_aes_context ctx;
+                    // mbedtls_aes_setkey_enc(&ctx, class_c_group_params.McKey, 128);
+                    // mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, nwk_input, class_c_credentials.NwkSKey);
+                    // mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, app_input, class_c_credentials.AppSKey);
 
                     printf("ClassCCredentials:\n");
                     printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_c_credentials.DevAddr, 4).c_str());
-                    printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.NwkSKey, 16).c_str());
-                    printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.AppSKey, 16).c_str());
+                    // printf("\tNwkSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.NwkSKey, 16).c_str());
+                    // printf("\tAppSKey: %s\n", mts::Text::bin2hexString(class_c_credentials.AppSKey, 16).c_str());
 
                     std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                     ack->push_back(MC_GROUP_SETUP_ANS);
@@ -303,7 +332,8 @@ private:
                             switch_to_class_c_t = 1;
                         }
 
-                        class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
+                        // class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
+                        class_c_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
                         // timetostart in seconds
                         ack->push_back(switch_to_class_c_t & 0xff);
@@ -331,6 +361,7 @@ private:
     }
 
     void HandleMacEvent(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
+
         if (mts::MTSLog::getLogLevel() == mts::MTSLog::TRACE_LEVEL) {
             std::string msg = "OK";
             switch (info->Status) {
@@ -406,7 +437,7 @@ private:
 
 
     RawSerial* target;
-    EventQueue* event_queue;
+    // EventQueue* event_queue;
     Callback<void(uint8_t, std::vector<uint8_t>*)> send_msg_cb;
     Callback<void(char)> class_switch_cb;
     UplinkEvent_t uplinkEvents[10];
@@ -420,7 +451,7 @@ private:
 
     Timeout class_c_timeout;
 
-    Thread read_from_uart_thread;
+    Thread* read_from_uart_thread;
 };
 
 #endif

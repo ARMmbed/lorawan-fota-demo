@@ -3,9 +3,10 @@
 
 using namespace std;
 
-EventQueue queue;
+// EventQueue queue(8 * EVENTS_EVENT_SIZE);
+// Thread ev_thread(osPriorityNormal, 1 * 1024);
 
-static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x3D, 0xAA };
+static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 0;
 static bool public_network = true;
@@ -21,25 +22,18 @@ mDot* dot = NULL;
 
 Serial pc(USBTX, USBRX);
 
-// fwd declaration
+// // fwd declaration
 void send_mac_msg(uint8_t port, vector<uint8_t>* data);
 void class_switch(char cls);
 
 // Custom event handler for automatically displaying RX data
-RadioEvent radio_events(&queue, &send_mac_msg, &class_switch);
+RadioEvent radio_events(/*&queue, */ &send_mac_msg, &class_switch);
 
 typedef struct {
     uint8_t port;
     bool is_mac;
     std::vector<uint8_t>* data;
 } UplinkMessage;
-
-#if defined(TARGET_XDOT_L151CC)
-I2C i2c(I2C_SDA, I2C_SCL);
-ISL29011 lux(i2c);
-#else
-AnalogIn lux(XBEE_AD0);
-#endif
 
 vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
 static bool in_class_c_mode = false;
@@ -74,15 +68,15 @@ void set_class_c_creds() {
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
 
-    // dot->setTxDataRate(credentials->TxDataRate);
-    // dot->setRxDataRate(credentials->RxDataRate);
+    dot->setTxDataRate(credentials->TxDataRate);
+    dot->setRxDataRate(credentials->RxDataRate);
 
     dot->setUpLinkCounter(credentials->UplinkCounter);
     dot->setDownLinkCounter(credentials->DownlinkCounter);
 
     update_network_link_check_config(0, 0);
 
-    // dot->setClass("C");
+    dot->setClass("C");
 
     printf("Switched to class C\n");
 }
@@ -100,8 +94,8 @@ void set_class_a_creds() {
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
 
-    // dot->setTxDataRate(credentials->TxDataRate);
-    // dot->setRxDataRate(credentials->RxDataRate);
+    dot->setTxDataRate(credentials->TxDataRate);
+    dot->setRxDataRate(credentials->RxDataRate);
 
     dot->setUpLinkCounter(credentials->UplinkCounter);
     dot->setDownLinkCounter(credentials->DownlinkCounter);
@@ -225,15 +219,37 @@ void class_switch(char cls) {
     }
 }
 
+static void start_filling_up() {
+    void* buffer;
+    uint32_t allocated = 0;
+
+    uint32_t size = 1024;
+
+    while (true) {
+        if (size == 64) break;
+
+        buffer = malloc(size);
+        if (buffer == NULL) {
+            size = size / 2;
+            continue;
+        }
+        printf("Allocated %d bytes\n", size);
+        allocated += size;
+        wait_ms(10);
+    }
+    printf("Allocated %d bytes before failed\n", allocated);
+}
+
+
 int main() {
     pc.baud(115200);
 
-    Thread ev_thread(osPriorityNormal, 16 * 1024);
-    ev_thread.start(callback(&queue, &EventQueue::dispatch_forever));
+    // ev_thread.start(callback(&queue, &EventQueue::dispatch_forever));
 
-    mts::MTSLog::setLogLevel(mts::MTSLog::INFO_LEVEL);
+    mts::MTSLog::setLogLevel(mts::MTSLog::TRACE_LEVEL);
 
     dot = mDot::getInstance();
+    // start_filling_up();
 
     // attach the custom events handler
     dot->setEvents(&radio_events);
@@ -269,6 +285,8 @@ int main() {
 
         dot->setAdr(false);
 
+        dot->setJoinRx2DataRate(mDot::SF_9); // sf9
+
         dot->setDisableDutyCycle(true);
 
         // save changes to configuration
@@ -280,7 +298,7 @@ int main() {
         // display configuration
         display_config();
 
-        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
+        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep
@@ -289,32 +307,35 @@ int main() {
     }
 
     while (true) {
-        uint16_t light;
-
-        // join network if not joined
-        if (!dot->getNetworkJoinStatus()) {
-            join_network();
-
-            LoRaWANCredentials_t creds;
-            get_current_credentials(&creds);
-            radio_events.OnClassAJoinSucceeded(&creds);
-        }
-
-        // get some dummy data and send it to the gateway
-        light = lux.read_u16();
-
-        vector<uint8_t>* tx_data = new vector<uint8_t>();
         if (!in_class_c_mode) {
-            tx_data->push_back((light >> 8) & 0xFF);
-            tx_data->push_back(light & 0xFF);
-            // logInfo("light: %lu [0x%04X]", light, light);
+
+            uint16_t light;
+
+            // join network if not joined
+            if (!dot->getNetworkJoinStatus()) {
+                join_network();
+
+                LoRaWANCredentials_t creds;
+                get_current_credentials(&creds);
+                radio_events.OnClassAJoinSucceeded(&creds);
+            }
+
+            // get some dummy data and send it to the gateway
+            light = rand() % 65000;
+
+            vector<uint8_t>* tx_data = new vector<uint8_t>();
+            if (!in_class_c_mode) {
+                tx_data->push_back((light >> 8) & 0xFF);
+                tx_data->push_back(light & 0xFF);
+                // logInfo("light: %lu [0x%04X]", light, light);
+            }
+
+            UplinkMessage* dummy = new UplinkMessage();
+            dummy->port = 5;
+            dummy->data = tx_data;
+
+            send_packet(dummy);
         }
-
-        UplinkMessage* dummy = new UplinkMessage();
-        dummy->port = 5;
-        dummy->data = tx_data;
-
-        send_packet(dummy);
 
         // if going into deepsleep mode, save the session so we don't need to join again after waking up
         // not necessary if going into sleep mode since RAM is retained
@@ -333,7 +354,7 @@ int main() {
 
         // @todo: in class A can go to deepsleep, in class C cannot
         if (in_class_c_mode) {
-            // wait(sleep_time); <-- this should go back when we have real class C on TTN
+            wait(sleep_time);
             continue; // for now just send as fast as possible
         }
         else {
