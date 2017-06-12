@@ -38,7 +38,9 @@ public:
         read_from_uart_thread = new Thread(osPriorityNormal, 1 * 1024);
 
         target = new RawSerial(PA_9, PA_10);
-        target->baud(9600*4);
+        target->baud(9600);
+
+        join_succeeded = false;
 
         read_from_uart_thread->start(callback(this, &RadioEvent::uart_main));
     }
@@ -87,6 +89,9 @@ public:
     }
 
     void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
+
+        join_succeeded = true;
+
         UpdateClassACredentials(credentials);
 
         printf("ClassAJoinSucceeded:\n");
@@ -150,6 +155,17 @@ private:
                         ack->push_back(serial_buffer[9]); // BlockHash
                         ack->push_back(serial_buffer[10]); // BlockHash
                         send_msg_cb(201, ack);
+                        break;
+                    }
+
+                    case 0x05: // Join status
+                    {
+                        if (join_succeeded) {
+                            char* data = (char*)malloc(1);
+                            data[0] = 0x03;
+
+                            sendOverUart(data, 1); // JoinAccept message through to target MCU
+                        }
                         break;
                     }
 
@@ -339,6 +355,13 @@ private:
                             switch_to_class_c_t = 1;
                         }
 
+                        char* data = (char*)malloc(4);
+                        data[0] = 0x04;
+                        data[1] = switch_to_class_c_t >> 16 & 0xff;
+                        data[2] = switch_to_class_c_t >> 8 & 0xff;
+                        data[3] = switch_to_class_c_t & 0xff;
+                        sendOverUart(data, 4);
+
                         // class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
                         class_c_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
@@ -459,6 +482,8 @@ private:
     Timeout class_c_timeout;
 
     Thread* read_from_uart_thread;
+
+    bool join_succeeded;
 };
 
 #endif

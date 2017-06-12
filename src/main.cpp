@@ -297,7 +297,7 @@ int main() {
 
         dot->setAdr(false);
 
-        dot->setJoinRx2DataRate(mDot::SF_9); // sf9
+        dot->setJoinRx2DataRate(mDot::DR3); // sf9
 
         dot->setDisableDutyCycle(true);
 
@@ -310,7 +310,7 @@ int main() {
         // display configuration
         display_config();
 
-        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
+        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep
@@ -356,7 +356,7 @@ int main() {
             dot->saveNetworkSession();
         }
 
-        uint32_t sleep_time = calculate_actual_sleep_time(10);
+        uint32_t sleep_time = calculate_actual_sleep_time(3 + (rand() % 8));
         // logInfo("going to wait %d seconds for duty-cycle...", sleep_time);
 
         // ONLY ONE of the three functions below should be uncommented depending on the desired wakeup method
