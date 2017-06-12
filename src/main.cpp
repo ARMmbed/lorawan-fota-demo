@@ -114,6 +114,16 @@ void set_class_a_creds() {
 
     update_network_link_check_config(3, 5);
 
+    // fake MAC command to switch to DR5
+    std::vector<uint8_t> mac_cmd;
+    mac_cmd.push_back(0x05);
+    mac_cmd.push_back(mDot::DR3); // Hardcoded for The Things Network...
+    // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
+    mac_cmd.push_back(0xd2);
+    mac_cmd.push_back(0xad);
+    mac_cmd.push_back(0x84);
+    dot->injectMacCommand(mac_cmd);
+
     dot->setClass("A");
 
     printf("Switched to class A\n");
@@ -230,28 +240,6 @@ void class_switch(char cls) {
         logError("Cannot switch to class %c", cls);
     }
 }
-
-static void start_filling_up() {
-    void* buffer;
-    uint32_t allocated = 0;
-
-    uint32_t size = 1024;
-
-    while (true) {
-        if (size == 64) break;
-
-        buffer = malloc(size);
-        if (buffer == NULL) {
-            size = size / 2;
-            continue;
-        }
-        printf("Allocated %d bytes\n", size);
-        allocated += size;
-        wait_ms(10);
-    }
-    printf("Allocated %d bytes before failed\n", allocated);
-}
-
 
 int main() {
     pc.baud(115200);

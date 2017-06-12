@@ -5,8 +5,8 @@
 #include "dot_util.h"
 #include "mDotEvent.h"
 #include "ProtocolLayer.h"
-// #include "aes.h"
 #include <sys/time.h>
+#include "base64.h"
 
 typedef struct {
     uint32_t uplinkCounter;
@@ -82,10 +82,9 @@ public:
     }
 
     void switchedToClassC() {
-        char* data = (char*)malloc(1);
-        data[0] = 0x09;
+        unsigned char data[] = { 0x09 };
 
-        sendOverUart(data, 1); // Class C mode
+        sendOverUart(data, sizeof(data)); // Class C mode
     }
 
     void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
@@ -103,10 +102,8 @@ public:
         printf("\tTxDataRate: %d\n", class_a_credentials.TxDataRate);
         printf("\tRxDataRate: %d\n", class_a_credentials.RxDataRate);
 
-        char* data = (char*)malloc(1);
-        data[0] = 0x03;
-
-        sendOverUart(data, 1); // JoinAccept message through to target MCU
+        unsigned char data[] = { 0x03 };
+        sendOverUart(data, sizeof(data)); // JoinAccept message through to target MCU
     }
 
     void UpdateClassACredentials(LoRaWANCredentials_t* credentials) {
@@ -124,18 +121,38 @@ public:
 private:
 
     void uart_main() {
-        char serial_buffer[128] = { 0 };
+        unsigned char serial_buffer[128] = { 0 };
+        unsigned char decode_buffer[181] = { 0 }; // 33% overhead + 10 extra bytes just to be sure
+
         uint8_t serial_ix = 0;
 
         while (1) {
             char c = target->getc();
 
             if (c == '\n') {
-                printf("Received from target MCU: %s\n", mts::Text::bin2hexString((uint8_t*)serial_buffer, serial_ix).c_str());
+                // clear buffer... not sure if base64_decode does this
+                memset(decode_buffer, 0, sizeof(decode_buffer));
 
-                switch (serial_buffer[0]) {
+                size_t decode_buffer_size;
+                int res = mbedtls_base64_decode(decode_buffer, sizeof(decode_buffer), &decode_buffer_size,
+                    const_cast<const unsigned char*>(serial_buffer), serial_ix);
+                if (res != 0) {
+                    printf("[ERR] Base64 decode failed... res=%d\n", res);
+
+                    // clear buffer...
+                    memset(serial_buffer, 0, sizeof(serial_buffer));
+                    serial_ix = 0;
+
+                    break;
+                }
+
+                printf("Received from target MCU: %s\n", mts::Text::bin2hexString((uint8_t*)decode_buffer, decode_buffer_size).c_str());
+
+                switch (decode_buffer[0]) {
                     case 0x01: // Datablock is complete
                     {
+                        if (decode_buffer_size < 11) break;
+
                         // 1 byte FragIndex
                         // 8 bytes BlockHash
 
@@ -145,35 +162,51 @@ private:
                         // Then queue the DataBlockAuthReq
                         std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                         ack->push_back(DATA_BLOCK_AUTH_REQ);
-                        ack->push_back(serial_buffer[2]); // FragIndex
-                        ack->push_back(serial_buffer[3]); // BlockHash
-                        ack->push_back(serial_buffer[4]); // BlockHash
-                        ack->push_back(serial_buffer[5]); // BlockHash
-                        ack->push_back(serial_buffer[6]); // BlockHash
-                        ack->push_back(serial_buffer[7]); // BlockHash
-                        ack->push_back(serial_buffer[8]); // BlockHash
-                        ack->push_back(serial_buffer[9]); // BlockHash
-                        ack->push_back(serial_buffer[10]); // BlockHash
+                        ack->push_back(decode_buffer[2]); // FragIndex
+                        ack->push_back(decode_buffer[3]); // BlockHash
+                        ack->push_back(decode_buffer[4]); // BlockHash
+                        ack->push_back(decode_buffer[5]); // BlockHash
+                        ack->push_back(decode_buffer[6]); // BlockHash
+                        ack->push_back(decode_buffer[7]); // BlockHash
+                        ack->push_back(decode_buffer[8]); // BlockHash
+                        ack->push_back(decode_buffer[9]); // BlockHash
+                        ack->push_back(decode_buffer[10]); // BlockHash
                         send_msg_cb(201, ack);
                         break;
                     }
 
-                    case 0x05: // Join status
+                    case 0x04: // Data is relayed from target MCU
+                    {
+                        if (decode_buffer_size < 2) break;
+
+                        std::vector<uint8_t>* data = new std::vector<uint8_t>();
+
+                        for (size_t ix = 2; ix < decode_buffer_size; ix++) {
+                            data->push_back(decode_buffer[ix]);
+                        }
+
+                        send_msg_cb(decode_buffer[1], data);
+
+                        break;
+                    }
+
+                    case 0x05: // Request join status
                     {
                         if (join_succeeded) {
-                            char* data = (char*)malloc(1);
-                            data[0] = 0x03;
+                            unsigned char data[] = { 0x03 };
+                            sendOverUart(data, sizeof(data)); // JoinAccept message through to target MCU
 
-                            sendOverUart(data, 1); // JoinAccept message through to target MCU
+                            InvokeClassASwitch(); // just to be sure, switch back to class A again
                         }
                         break;
                     }
 
                     case 0x08: // Key sign response
                     {
+                        if (decode_buffer_size < 33) break;
 
-                        memcpy(class_c_credentials.NwkSKey, serial_buffer + 1, 16);
-                        memcpy(class_c_credentials.AppSKey, serial_buffer + 17, 16);
+                        memcpy(class_c_credentials.NwkSKey, decode_buffer + 1, 16);
+                        memcpy(class_c_credentials.AppSKey, decode_buffer + 17, 16);
 
                         printf("ClassCCredentials (AES Key Sign Response):\n");
                         printf("\tDevAddr: %s\n", mts::Text::bin2hexString(class_c_credentials.DevAddr, 4).c_str());
@@ -194,17 +227,46 @@ private:
         }
     }
 
-    void sendOverUart(char* data, size_t size) {
-        // printf("Sending to target MCU (%li bytes): [ ", size);
-        // for (size_t ix = 0; ix < size; ix++) {
-        //     printf("%02x ", data[ix]);
-        // }
-        // printf("]\n\n");
-
-        for (size_t ix = 0; ix < size; ix++) {
-            target->putc(data[ix]);
+    void sendOverUart(unsigned char* buffer, size_t buffer_size) {
+        for (size_t ix = 0; ix < buffer_size; ix++) {
+            target->putc(buffer[ix]);
         }
-        free(data);
+
+        // size_t dest_buffer_size = (size_t)(static_cast<float>(buffer_size) * 1.35f) + 10; // 35% overhead just to be safe, and then some extra bytes just for cause
+        // unsigned char* dest_buffer = (unsigned char*)calloc(dest_buffer_size, 1);
+        // if (!dest_buffer) {
+        //     printf("[ERR] malloc base64 destination buffer failed...\n");
+        //     return;
+        // }
+
+        // // printf("send_over_uart... buffer_size=%u, dest_buffer_size=%u\n",
+        // //     buffer_size, dest_buffer_size);
+
+        // size_t encoded_size;
+
+        // int res = mbedtls_base64_encode(dest_buffer, dest_buffer_size, &encoded_size,
+        //     (const unsigned char*)buffer, buffer_size);
+        // if (res != 0) {
+        //     printf("[ERR] base64 encode failed... %d\n", res);
+        //     free(dest_buffer);
+        //     return;
+        // }
+
+        // // send to radio module
+        // // printf("Sending to target MCU (%u bytes)\n", encoded_size);
+
+        // for (size_t ix = 0; ix < encoded_size; ix++) {
+        //     // printf("%c", dest_buffer[ix]);
+        //     if (target) {
+        //         target->putc(dest_buffer[ix]);
+        //     }
+        // }
+        // // printf("\n");
+        // if (target) {
+        //     target->putc('\n');
+        // }
+
+        // free(dest_buffer);
     }
 
     void processFragmentationMacCommand(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
@@ -267,13 +329,13 @@ private:
                     const unsigned char nwk_input[16] = { 0x01, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
                     const unsigned char app_input[16] = { 0x02, class_c_credentials.DevAddr[0], class_c_credentials.DevAddr[1], class_c_credentials.DevAddr[2], class_c_credentials.DevAddr[3], 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
-                    char* data = (char*)malloc(1 + (16 * 3));
+                    unsigned char data[1 + (16 * 3)];
                     data[0] = 0x08;
                     memcpy(data + 1, class_c_group_params.McKey, 16);
                     memcpy(data + 1 + 16, nwk_input, 16);
                     memcpy(data + 1 + 16 + 16, app_input, 16);
 
-                    sendOverUart(data, 1 + (16 * 3)); // AES-128 request
+                    sendOverUart(data, sizeof(data)); // AES-128 request
 
                     // mbedtls_aes_context ctx;
                     // mbedtls_aes_setkey_enc(&ctx, class_c_group_params.McKey, 128);
@@ -349,18 +411,19 @@ private:
                     // going to switch to class C in... ulEvent.time + params.TimeToStart
                     if (!switch_err) {
                         time_t switch_to_class_c_t = ulEvent.time + class_c_session_params.TimeToStart - time(NULL);
-                        printf("Going to switch to class C in %d seconds\n", switch_to_class_c_t);
+                        printf("Going to switch to class C in %li seconds\n", switch_to_class_c_t);
 
                         if (switch_to_class_c_t < 0) {
                             switch_to_class_c_t = 1;
                         }
 
-                        char* data = (char*)malloc(4);
+                        unsigned char data[4];
                         data[0] = 0x04;
-                        data[1] = switch_to_class_c_t >> 16 & 0xff;
-                        data[2] = switch_to_class_c_t >> 8 & 0xff;
+                        data[1] = (switch_to_class_c_t >> 16) & 0xff;
+                        data[2] = (switch_to_class_c_t >> 8) & 0xff;
                         data[3] = switch_to_class_c_t & 0xff;
-                        sendOverUart(data, 4);
+
+                        sendOverUart(data, sizeof(data));
 
                         // class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
                         class_c_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
@@ -448,7 +511,7 @@ private:
                 }
 
                 size_t data_size = 1 + 1 + 2 + 1 + info->RxBufferSize;
-                char* data = (char*)malloc(data_size);
+                unsigned char* data = (unsigned char*)malloc(data_size);
 
                 data[0] = (0x01); // msg ID
                 data[1] = (info->RxPort);
@@ -461,6 +524,8 @@ private:
                 }
 
                 sendOverUart(data, data_size); // Fwd to target MCU
+
+                free(data);
             }
         }
     }
