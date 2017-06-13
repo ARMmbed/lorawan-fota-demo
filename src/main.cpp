@@ -8,7 +8,7 @@ using namespace std;
 
 static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
-static uint8_t frequency_sub_band = 0;
+static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
 static uint8_t ack = 1;
 
@@ -68,22 +68,23 @@ void set_class_c_creds() {
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
 
-    dot->setTxDataRate(credentials->TxDataRate);
-    dot->setRxDataRate(credentials->RxDataRate);
+    // dot->setTxDataRate(credentials->TxDataRate);
+    // dot->setRxDataRate(credentials->RxDataRate);
 
     dot->setUpLinkCounter(credentials->UplinkCounter);
     dot->setDownLinkCounter(credentials->DownlinkCounter);
 
-    update_network_link_check_config(0, 0);
+    // update_network_link_check_config(0, 0);
 
     // fake MAC command to switch to DR5
     std::vector<uint8_t> mac_cmd;
     mac_cmd.push_back(0x05);
     mac_cmd.push_back(credentials->RxDataRate);
     // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
-    mac_cmd.push_back(0xd2);
-    mac_cmd.push_back(0xad);
-    mac_cmd.push_back(0x84);
+    // hard coded to 9245000
+    mac_cmd.push_back(0x48);
+    mac_cmd.push_back(0x11);
+    mac_cmd.push_back(0x8d);
     dot->injectMacCommand(mac_cmd);
 
     dot->setClass("C");
@@ -106,23 +107,25 @@ void set_class_a_creds() {
     dot->setNetworkSessionKey(nwkskey);
     dot->setDataSessionKey(appskey);
 
-    dot->setTxDataRate(credentials->TxDataRate);
-    dot->setRxDataRate(credentials->RxDataRate);
+    // dot->setTxDataRate(credentials->TxDataRate);
+    // dot->setRxDataRate(credentials->RxDataRate);
 
     dot->setUpLinkCounter(credentials->UplinkCounter);
     dot->setDownLinkCounter(credentials->DownlinkCounter);
 
-    update_network_link_check_config(3, 5);
+    // update_network_link_check_config(3, 5);
+
+    printf("Class C RxDatarate is %d\n", credentials->RxDataRate);
 
     // fake MAC command to switch to DR5
-    std::vector<uint8_t> mac_cmd;
-    mac_cmd.push_back(0x05);
-    mac_cmd.push_back(mDot::DR3); // Hardcoded for The Things Network...
-    // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
-    mac_cmd.push_back(0xd2);
-    mac_cmd.push_back(0xad);
-    mac_cmd.push_back(0x84);
-    dot->injectMacCommand(mac_cmd);
+    // std::vector<uint8_t> mac_cmd;
+    // mac_cmd.push_back(0x05);
+    // mac_cmd.push_back(mDot::SF_9); // Hardcoded for The Things Network...
+    // // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
+    // mac_cmd.push_back(0x48);
+    // mac_cmd.push_back(0x11);
+    // mac_cmd.push_back(0x8d);
+    // dot->injectMacCommand(mac_cmd);
 
     dot->setClass("A");
 
@@ -154,8 +157,8 @@ void send_packet(UplinkMessage* message) {
     }
 
     dot->setAppPort(m->port);
-    dot->setTxDataRate(mDot::SF_7);
-    dot->setRxDataRate(mDot::SF_7);
+    dot->setTxDataRate(mDot::DR4);
+    // dot->setRxDataRate(mDot::SF_7);
 
     // printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
     // for (size_t ix = 0; ix < m->data->size(); ix++) {
@@ -276,16 +279,16 @@ int main() {
         // check the link every count packets
         // declare the Dot disconnected after threshold failed link checks
         // for count = 3 and threshold = 5, the Dot will be considered disconnected after 15 missed packets in a row
-        update_network_link_check_config(3, 5);
+        // update_network_link_check_config(3, 5);
 
-        logInfo("setting data rate to SF_7");
-        if (dot->setTxDataRate(mDot::SF_7) != mDot::MDOT_OK) {
+        logInfo("setting data rate to DR4");
+        if (dot->setTxDataRate(mDot::DR4) != mDot::MDOT_OK) {
             logError("failed to set data rate");
         }
 
         dot->setAdr(false);
 
-        dot->setJoinRx2DataRate(mDot::DR3); // sf9
+        // dot->setJoinRx2DataRate(mDot::DR3); // sf9
 
         dot->setDisableDutyCycle(true);
 
@@ -298,7 +301,7 @@ int main() {
         // display configuration
         display_config();
 
-        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
+        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep

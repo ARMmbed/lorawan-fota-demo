@@ -146,7 +146,7 @@ private:
                     break;
                 }
 
-                printf("Received from target MCU: %s\n", mts::Text::bin2hexString((uint8_t*)decode_buffer, decode_buffer_size).c_str());
+                // printf("Received from target MCU: %s\n", mts::Text::bin2hexString((uint8_t*)decode_buffer, decode_buffer_size).c_str());
 
                 switch (decode_buffer[0]) {
                     case 0x01: // Datablock is complete
