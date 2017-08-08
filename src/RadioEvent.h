@@ -136,7 +136,7 @@ private:
 
                 // @todo: fragsession is bit 5 and 6 on byte 1
                 // @todo: extract mc group from byte 1
-                frag_params.FragSession = (info->RxBuffer[1] >> 3) & 0x01;
+                frag_params.FragSession = (info->RxBuffer[1] >> 4) & 0x03;
                 frag_params.NbFrag = ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                 frag_params.FragSize = info->RxBuffer[4];
                 frag_params.Encoding = info->RxBuffer[5];
@@ -361,6 +361,7 @@ private:
                         class_c_start_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
                         // timetostart in seconds
+                        // @TODO: if this message fails to ack we should update this timing here otherwise the server is out of sync
                         ack->push_back(switch_to_class_c_t & 0xff);
                         ack->push_back(switch_to_class_c_t >> 8 & 0xff);
                         ack->push_back(switch_to_class_c_t >> 16 & 0xff);

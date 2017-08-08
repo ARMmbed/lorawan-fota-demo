@@ -7,7 +7,7 @@ static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 }
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
-static uint8_t ack = 1;
+static uint8_t ack = 0;
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -183,9 +183,15 @@ void send_packet(UplinkMessage* message) {
     radio_events.OnTx(dot->getUpLinkCounter() + 1);
 
     if (m->is_mac) {
+#if MBED_CONF_APP_ACK_MAC_COMMANDS == 1
         dot->setAck(true);
+#endif
+
         ret = dot->send(*(m->data));
+
+#if MBED_CONF_APP_ACK_MAC_COMMANDS == 1
         dot->setAck(false);
+#endif
     }
     else {
         dot->setAck(false);
