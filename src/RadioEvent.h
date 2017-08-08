@@ -249,7 +249,19 @@ private:
 
             case DATA_BLOCK_AUTH_ANS:
             {
-                printf("Got DATA_BLOCK_AUTH_ANS\n");
+                printf("DATA_BLOCK_AUTH_ANS: ");
+                for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
+                    printf("%02x ", info->RxBuffer[ix]);
+                }
+                printf("\n");
+
+                if (info->RxBufferSize == 2) {
+                    // not good!
+                }
+                else {
+                    // do MIC check...
+                    // if MIC check is OK, then start flashing the firmware
+                }
             }
             break;
         }
