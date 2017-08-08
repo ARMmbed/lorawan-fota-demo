@@ -6,7 +6,7 @@
         },
         "ack-mac-commands": {
             "help": "Where to ACK fragmentation / datablock MAC commands",
-            "value": 0
+            "value": 1
         }
     },
     "macros": ["CBC=0", "EBC=1", "MBED_HEAP_STATS_ENABLED=1"],

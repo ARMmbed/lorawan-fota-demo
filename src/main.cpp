@@ -46,7 +46,8 @@ void get_current_credentials(LoRaWANCredentials_t* creds) {
     creds->TxDataRate = dot->getTxDataRate();
     creds->RxDataRate = dot->getRxDataRate();
 
-    creds->Rx2Frequency = dot->getJoinRx2Frequency();
+    creds->Rx2Frequency = dot->getJoinRx2Frequency() / 100;
+    // somehow this still goes wrong when switching back to class A...
 }
 
 void set_class_a_creds();
@@ -131,14 +132,14 @@ void set_class_a_creds() {
     mac_cmd.push_back(credentials->Rx2Frequency >> 8 & 0xff);
     mac_cmd.push_back(credentials->Rx2Frequency >> 16 & 0xff);
 
-    printf("Setting RX2 freq to %02x %02x %02x\n", credentials->Rx2Frequency & 0xff,
-        credentials->Rx2Frequency >> 8 & 0xff, credentials->Rx2Frequency >> 16 & 0xff);
+    // printf("Setting RX2 freq to %02x %02x %02x\n", credentials->Rx2Frequency & 0xff,
+    //     credentials->Rx2Frequency >> 8 & 0xff, credentials->Rx2Frequency >> 16 & 0xff);
 
-    int32_t ret;
-    if ((ret = dot->injectMacCommand(mac_cmd)) != mDot::MDOT_OK) {
-        printf("Failed to set Class A Rx parameters (%lu)\n", ret);
-        // don't fail here...
-    }
+    // int32_t ret;
+    // if ((ret = dot->injectMacCommand(mac_cmd)) != mDot::MDOT_OK) {
+    //     printf("Failed to set Class A Rx parameters (%lu)\n", ret);
+    //     // don't fail here...
+    // }
 
     dot->setClass("A");
 

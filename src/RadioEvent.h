@@ -379,6 +379,12 @@ private:
     }
 
     void InvokeClassCSwitch() {
+        // no frag_session? abort
+        if (frag_session == NULL) {
+            logError("Refusing class C switch. No frag_session");
+            return;
+        }
+
         class_switch_cb('C');
     }
 
