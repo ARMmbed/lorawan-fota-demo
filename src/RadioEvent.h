@@ -255,12 +255,14 @@ private:
                 }
                 printf("\n");
 
+                // fragindex and success bit are on info->RxBuffer[1]
                 if (info->RxBufferSize == 2) {
                     // not good!
                 }
                 else {
                     // do MIC check...
                     // if MIC check is OK, then start flashing the firmware
+                    // TTN has MIC not implemented yet
                 }
             }
             break;
