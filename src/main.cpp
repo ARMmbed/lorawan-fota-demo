@@ -3,9 +3,6 @@
 
 using namespace std;
 
-// EventQueue queue(8 * EVENTS_EVENT_SIZE);
-// Thread ev_thread(osPriorityNormal, 1 * 1024);
-
 static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 2;
@@ -27,7 +24,7 @@ void send_mac_msg(uint8_t port, vector<uint8_t>* data);
 void class_switch(char cls);
 
 // Custom event handler for automatically displaying RX data
-RadioEvent radio_events(/*&queue, */ &send_mac_msg, &class_switch);
+RadioEvent radio_events(&send_mac_msg, &class_switch);
 
 typedef struct {
     uint8_t port;
@@ -48,7 +45,11 @@ void get_current_credentials(LoRaWANCredentials_t* creds) {
 
     creds->TxDataRate = dot->getTxDataRate();
     creds->RxDataRate = dot->getRxDataRate();
+
+    creds->Rx2Frequency = dot->getJoinRx2DataRate();
 }
+
+void set_class_a_creds();
 
 void set_class_c_creds() {
     LoRaWANCredentials_t* credentials = radio_events.GetClassCCredentials();
@@ -80,12 +81,19 @@ void set_class_c_creds() {
     std::vector<uint8_t> mac_cmd;
     mac_cmd.push_back(0x05);
     mac_cmd.push_back(credentials->RxDataRate);
-    // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
-    // hard coded to 9245000
-    mac_cmd.push_back(0x48);
-    mac_cmd.push_back(0x11);
-    mac_cmd.push_back(0x8d);
-    dot->injectMacCommand(mac_cmd);
+    mac_cmd.push_back(credentials->Rx2Frequency & 0xff);
+    mac_cmd.push_back(credentials->Rx2Frequency >> 8 & 0xff);
+    mac_cmd.push_back(credentials->Rx2Frequency >> 16 & 0xff);
+
+    printf("Setting RX2 freq to %02x %02x %02x\n", credentials->Rx2Frequency & 0xff,
+        credentials->Rx2Frequency >> 8 & 0xff, credentials->Rx2Frequency >> 16 & 0xff);
+
+    int32_t ret;
+    if ((ret = dot->injectMacCommand(mac_cmd)) != mDot::MDOT_OK) {
+        printf("Failed to set Class C Rx parameters (%lu)\n", ret);
+        set_class_a_creds();
+        return;
+    }
 
     dot->setClass("C");
 
@@ -115,17 +123,22 @@ void set_class_a_creds() {
 
     // update_network_link_check_config(3, 5);
 
-    printf("Class C RxDatarate is %d\n", credentials->RxDataRate);
+    // reset rx2 datarate
+    std::vector<uint8_t> mac_cmd;
+    mac_cmd.push_back(0x05);
+    mac_cmd.push_back(credentials->RxDataRate);
+    mac_cmd.push_back(credentials->Rx2Frequency & 0xff);
+    mac_cmd.push_back(credentials->Rx2Frequency >> 8 & 0xff);
+    mac_cmd.push_back(credentials->Rx2Frequency >> 16 & 0xff);
 
-    // fake MAC command to switch to DR5
-    // std::vector<uint8_t> mac_cmd;
-    // mac_cmd.push_back(0x05);
-    // mac_cmd.push_back(mDot::SF_9); // Hardcoded for The Things Network...
-    // // todo: set the actual freq instead hard code to 8695250 ((b[2] << 16) + (b[1] << 8) + b[0]).
-    // mac_cmd.push_back(0x48);
-    // mac_cmd.push_back(0x11);
-    // mac_cmd.push_back(0x8d);
-    // dot->injectMacCommand(mac_cmd);
+    printf("Setting RX2 freq to %02x %02x %02x\n", credentials->Rx2Frequency & 0xff,
+        credentials->Rx2Frequency >> 8 & 0xff, credentials->Rx2Frequency >> 16 & 0xff);
+
+    int32_t ret;
+    if ((ret = dot->injectMacCommand(mac_cmd)) != mDot::MDOT_OK) {
+        printf("Failed to set Class A Rx parameters (%lu)\n", ret);
+        // don't fail here...
+    }
 
     dot->setClass("A");
 
@@ -149,11 +162,8 @@ void send_packet(UplinkMessage* message) {
     // OK... soooooo we can only send in Class A
     bool switched_creds = false;
     if (in_class_c_mode) {
-        if (m->port != 5) { // exception because TTN does not have class C. Fake it on port 5...
-            // switch to class A credentials
-            set_class_a_creds();
-            switched_creds = true;
-        }
+        logError("Cannot send in Class C mode. Switch back to Class A first.\n");
+        return;
     }
 
     dot->setAppPort(m->port);
@@ -247,12 +257,9 @@ void class_switch(char cls) {
 int main() {
     pc.baud(115200);
 
-    // ev_thread.start(callback(&queue, &EventQueue::dispatch_forever));
-
     mts::MTSLog::setLogLevel(mts::MTSLog::TRACE_LEVEL);
 
     dot = mDot::getInstance();
-    // start_filling_up();
 
     // attach the custom events handler
     dot->setEvents(&radio_events);
@@ -274,21 +281,12 @@ int main() {
         }
         update_ota_config_id_key(network_id, network_key, frequency_sub_band, public_network, ack);
 
-        // configure network link checks
-        // network link checks are a good alternative to requiring the gateway to ACK every packet and should allow a single gateway to handle more Dots
-        // check the link every count packets
-        // declare the Dot disconnected after threshold failed link checks
-        // for count = 3 and threshold = 5, the Dot will be considered disconnected after 15 missed packets in a row
-        // update_network_link_check_config(3, 5);
-
         logInfo("setting data rate to DR4");
         if (dot->setTxDataRate(mDot::DR4) != mDot::MDOT_OK) {
             logError("failed to set data rate");
         }
 
         dot->setAdr(false);
-
-        // dot->setJoinRx2DataRate(mDot::DR3); // sf9
 
         dot->setDisableDutyCycle(true);
 
@@ -301,7 +299,7 @@ int main() {
         // display configuration
         display_config();
 
-        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
+        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep
