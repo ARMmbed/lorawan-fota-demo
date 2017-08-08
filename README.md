@@ -1,10 +1,10 @@
-# LoRa FOTA WIP
+# Firmware Updates over LoRaWAN for Multi-Tech xDot
 
-This is the LoRa radio part (mDot or xDot).
+To be used by a Multi-Tech xDot with AT45 external flash.
 
-Needs target MCU running https://github.com/ARMmbed/update-client-wo-cloud/tree/lora, or need to implement https://github.com/janjongboom/lorawan-fragmentation-in-flash.
+## Bootloader
 
-Connect radio and target MCU over UART D1/D0.
+https://github.com/janjongboom/lorawan-at45-fota-bootloader
 
 ## More info
 
@@ -15,8 +15,6 @@ Ask Jan Jongboom.
 First install mbed CLI and GCC ARM Embedded 4.9.3.
 
 ```
-$ git clone git@github.com:armmbed/fota-lora-radio.git
-$ cd fota-lora-radio
 $ mbed deploy
 $ mbed compile -m xdot_l151cc -t GCC_ARM
 ```

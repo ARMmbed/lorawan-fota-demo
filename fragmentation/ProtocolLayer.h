@@ -80,7 +80,7 @@ typedef struct sMcClassCSessionParams
     /*!
      * encodes the maximum length in seconds of the multicast fragmentation session
      */
-    uint8_t TimeOut;
+    uint32_t TimeOut;
 
     /*!
      * encodes the maximum length in seconds of the multicast fragmentation session

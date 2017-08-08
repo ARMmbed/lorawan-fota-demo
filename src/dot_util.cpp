@@ -20,9 +20,7 @@ void display_config() {
     logInfo("version ------------------ %s", dot->getId().c_str());
     logInfo("device ID/EUI ------------ %s", mts::Text::bin2hexString(dot->getDeviceId()).c_str());
     logInfo("frequency band ----------- %s", mDot::FrequencyBandStr(dot->getFrequencyBand()).c_str());
-    if (dot->getFrequencySubBand() != mDot::FB_EU868) {
-        logInfo("frequency sub band ------- %u", dot->getFrequencySubBand());
-    }
+    logInfo("frequency sub band ------- %u", dot->getFrequencySubBand());
     logInfo("public network ----------- %s", dot->getPublicNetwork() ? "on" : "off");
     logInfo("=========================");
     logInfo("credentials configuration");

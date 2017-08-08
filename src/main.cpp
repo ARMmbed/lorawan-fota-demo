@@ -46,7 +46,7 @@ void get_current_credentials(LoRaWANCredentials_t* creds) {
     creds->TxDataRate = dot->getTxDataRate();
     creds->RxDataRate = dot->getRxDataRate();
 
-    creds->Rx2Frequency = dot->getJoinRx2DataRate();
+    creds->Rx2Frequency = dot->getJoinRx2Frequency();
 }
 
 void set_class_a_creds();
@@ -143,6 +143,8 @@ void set_class_a_creds() {
     dot->setClass("A");
 
     printf("Switched to class A\n");
+
+    radio_events.switchedToClassA();
 }
 
 void send_packet(UplinkMessage* message) {
@@ -167,14 +169,14 @@ void send_packet(UplinkMessage* message) {
     }
 
     dot->setAppPort(m->port);
-    dot->setTxDataRate(mDot::DR4);
+    dot->setTxDataRate(mDot::DR4); // @todo, this is not good, should use ADR
     // dot->setRxDataRate(mDot::SF_7);
 
-    // printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
-    // for (size_t ix = 0; ix < m->data->size(); ix++) {
-    //     printf("%02x ", m->data->at(ix));
-    // }
-    // printf("\n");
+    printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
+    for (size_t ix = 0; ix < m->data->size(); ix++) {
+        printf("%02x ", m->data->at(ix));
+    }
+    printf("\n");
 
     uint32_t ret;
 
@@ -265,8 +267,6 @@ int main() {
     dot->setEvents(&radio_events);
 
     if (!dot->getStandbyFlag()) {
-        logInfo("mbed-os library version: %d", MBED_LIBRARY_VERSION);
-
         // start from a well-known state
         logInfo("defaulting Dot configuration");
         dot->resetConfig();

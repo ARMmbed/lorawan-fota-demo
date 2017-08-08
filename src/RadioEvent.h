@@ -12,6 +12,7 @@
 #include "FragmentationSession.h"
 #include "FragmentationCrc64.h"
 #include "tiny-aes.h"
+#include "mbed_stats.h"
 
 typedef struct {
     uint32_t uplinkCounter;
@@ -43,6 +44,7 @@ public:
     ) : /*event_queue(aevent_queue), */send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb)
     {
         join_succeeded = false;
+        cls = '0';
     }
 
     virtual ~RadioEvent() {}
@@ -82,7 +84,15 @@ public:
     }
 
     void switchedToClassC() {
-        
+        cls = 'C';
+
+        class_c_cancel_timeout.attach(callback(this, &RadioEvent::ClassCTimeout), class_c_cancel_s);
+    }
+
+    void switchedToClassA() {
+        cls = 'A';
+
+        class_c_cancel_timeout.detach();
     }
 
     void OnClassAJoinSucceeded(LoRaWANCredentials_t* credentials) {
@@ -151,7 +161,18 @@ private:
                 frag_opts.NumberOfFragments = frag_params.NbFrag;
                 frag_opts.FragmentSize = frag_params.FragSize;
                 frag_opts.Padding = frag_params.Padding;
-                frag_opts.RedundancyPackets = 10; // @todo: fix this
+
+                // @todo: make this dependent on the space on the heap
+                frag_opts.RedundancyPackets = MBED_CONF_APP_MAX_REDUNDANCY_PACKETS;
+
+                if (frag_session != NULL) {
+                    delete frag_session;
+                }
+
+
+                mbed_stats_heap_t heap_stats;
+                mbed_stats_heap_get(&heap_stats);
+                printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
                 frag_session = new FragmentationSession(&at45, frag_opts);
                 FragResult result = frag_session->initialize();
@@ -161,6 +182,9 @@ private:
                 }
 
                 printf("FragmentationSession initialized OK\n");
+
+                mbed_stats_heap_get(&heap_stats);
+                printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
             }
             break;
 
@@ -177,6 +201,10 @@ private:
                         printf("FragmentationSession is complete at frame %d\n", frameCounter);
                         delete frag_session;
                         frag_session = NULL;
+
+                        mbed_stats_heap_t heap_stats;
+                        mbed_stats_heap_get(&heap_stats);
+                        printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
                         InvokeClassASwitch();
 
@@ -297,7 +325,7 @@ private:
 
                     uint8_t status = class_c_session_params.McGroupIDHeader;
 
-                    // @todo: switch back to class C after the timeout!
+                    class_c_cancel_s = pow(2, class_c_session_params.TimeOut);
 
                     bool switch_err = false;
 
@@ -329,8 +357,8 @@ private:
                             switch_to_class_c_t = 1;
                         }
 
-                        // class_c_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
-                        class_c_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
+                        // class_c_start_timeout.attach(event_queue->event(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
+                        class_c_start_timeout.attach(callback(this, &RadioEvent::InvokeClassCSwitch), switch_to_class_c_t);
 
                         // timetostart in seconds
                         ack->push_back(switch_to_class_c_t & 0xff);
@@ -355,6 +383,14 @@ private:
 
     void InvokeClassASwitch() {
         class_switch_cb('A');
+    }
+
+    void ClassCTimeout() {
+        if (cls == 'C') {
+            logInfo("Class C Timeout");
+
+            InvokeClassASwitch();
+        }
     }
 
     void HandleMacEvent(LoRaMacEventFlags* flags, LoRaMacEventInfo* info) {
@@ -402,6 +438,10 @@ private:
 
             logDebug("Rx %d bytes", info->RxBufferSize);
             if (info->RxBufferSize > 0) {
+                if (cls == 'C') {
+                    class_c_cancel_timeout.attach(callback(this, &RadioEvent::ClassCTimeout), class_c_cancel_s);
+                }
+
                 // Forward the data to the target MCU
                 // logInfo("PacketRx port=%d, size=%d, rssi=%d, FPending=%d", info->RxPort, info->RxBufferSize, info->RxRssi, 0);
                 // logInfo("Rx data: %s", mts::Text::bin2hexString(info->RxBuffer, info->RxBufferSize).c_str());
@@ -429,13 +469,16 @@ private:
     LoRaWANCredentials_t class_a_credentials;
     LoRaWANCredentials_t class_c_credentials;
 
-    Timeout class_c_timeout;
+    Timeout class_c_start_timeout;
+    Timeout class_c_cancel_timeout;
+    uint32_t class_c_cancel_s;
 
     AT45Flash at45;
     FragmentationSession* frag_session;
     FragmentationSessionOpts_t frag_opts;
 
     bool join_succeeded;
+    char cls;
 };
 
 #endif
