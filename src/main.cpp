@@ -46,7 +46,7 @@ void get_current_credentials(LoRaWANCredentials_t* creds) {
     creds->TxDataRate = dot->getTxDataRate();
     creds->RxDataRate = dot->getRxDataRate();
 
-    creds->Rx2Frequency = dot->getJoinRx2Frequency() / 100;
+    creds->Rx2Frequency = dot->getJoinRx2Frequency();
     // somehow this still goes wrong when switching back to class A...
 }
 
@@ -86,9 +86,6 @@ void set_class_c_creds() {
     mac_cmd.push_back(credentials->Rx2Frequency >> 8 & 0xff);
     mac_cmd.push_back(credentials->Rx2Frequency >> 16 & 0xff);
 
-    printf("Setting RX2 freq to %02x %02x %02x\n", credentials->Rx2Frequency & 0xff,
-        credentials->Rx2Frequency >> 8 & 0xff, credentials->Rx2Frequency >> 16 & 0xff);
-
     int32_t ret;
     if ((ret = dot->injectMacCommand(mac_cmd)) != mDot::MDOT_OK) {
         printf("Failed to set Class C Rx parameters (%lu)\n", ret);
@@ -124,7 +121,8 @@ void set_class_a_creds() {
 
     // update_network_link_check_config(3, 5);
 
-    // reset rx2 datarate
+    // reset rx2 datarate... however, this gets rejected because the datarate is not valid for receiving
+    // wondering if we actually need to do this...
     std::vector<uint8_t> mac_cmd;
     mac_cmd.push_back(0x05);
     mac_cmd.push_back(credentials->RxDataRate);
