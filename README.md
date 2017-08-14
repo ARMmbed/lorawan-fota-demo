@@ -1,6 +1,6 @@
 # Firmware Updates over LoRaWAN for Multi-Tech xDot
 
-To be used by a Multi-Tech xDot with AT45 external flash.
+To be used by a Multi-Tech xDot with AT45 external flash. Please note that this is *not* open sourced yet.
 
 ## Bootloader
 
