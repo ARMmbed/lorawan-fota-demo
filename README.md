@@ -15,7 +15,7 @@ The application implements:
 
 1. Get access to The Things Network Canary, so you can actually deploy updates.
 1. Set your application EUI and application key in `main.cpp`.
-1. Install Mbed CLI and ARMCC 5 (no GCC_ARM at this point), and import this application:
+1. Install Mbed CLI and either ARMCC 5 or GCC ARM 6 (not 4.9!), and import this application:
 
     ```
     $ mbed import https://github.com/armmbed/fota-lora-radio
@@ -24,7 +24,11 @@ The application implements:
 1. Compile this application:
 
     ```
+    # ARMCC
     $ mbed compile -m xdot_l151cc -t ARM
+
+    # GCC
+    $ mbed compile -m xdot_l151cc -t GCC_ARM
     ```
 
 1. Flash the application on your development board.
@@ -38,4 +42,8 @@ The application implements:
 ## Other flash drivers
 
 If you're using a different flash chip, you'll need to implement the [BlockDevice](https://docs.mbed.com/docs/mbed-os-api-reference/en/latest/APIs/storage/block_device/) interface. See `AT45BlockDevice.h` in the `at45-blockdevice` driver for more information.
+
+## More information
+
+Contact Jan Jongboom, jan.jongboom@arm.com.
 
