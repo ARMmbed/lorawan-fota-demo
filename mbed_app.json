@@ -9,7 +9,13 @@
             "value": 0
         }
     },
-    "macros": ["CBC=0", "EBC=1", "MBED_HEAP_STATS_ENABLED=1"],
+    "macros": [
+        "CBC=0",
+        "EBC=1",
+        "MBED_HEAP_STATS_ENABLED=1",
+        "FOTA_INFO_PAGE=0x1800",
+        "FOTA_UPDATE_PAGE=0x1801"
+    ],
     "target_overrides": {
         "XDOT_L151CC": {
             "target.bootloader_img": "bootloader/xdot-at45-develop.bin"

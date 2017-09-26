@@ -12,6 +12,7 @@
 #include "FragmentationCrc64.h"
 #include "tiny-aes.h"
 #include "mbed_stats.h"
+#include "UpdateParameters.h"
 
 typedef struct {
     uint32_t uplinkCounter;
@@ -44,6 +45,11 @@ public:
     {
         join_succeeded = false;
         cls = '0';
+
+        int ain;
+        if ((ain = at45.init()) != BD_ERROR_OK) {
+            printf("Failed to initialize AT45BlockDevice (%d)\n", ain);
+        }
     }
 
     virtual ~RadioEvent() {}
@@ -164,6 +170,8 @@ private:
                 // @todo: make this dependent on the space on the heap
                 frag_opts.RedundancyPackets = MBED_CONF_APP_MAX_REDUNDANCY_PACKETS;
 
+                frag_opts.FlashOffset = FOTA_UPDATE_PAGE * at45.get_read_size();
+
                 if (frag_session != NULL) {
                     delete frag_session;
                 }
@@ -212,9 +220,17 @@ private:
                         uint8_t crc_buffer[128];
 
                         FragmentationCrc64 crc64(&at45, crc_buffer, sizeof(crc_buffer));
-                        uint64_t crc_res = crc64.calculate(0, (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding);
+                        uint64_t crc_res = crc64.calculate(frag_opts.FlashOffset, (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding);
 
-                        printf("Expected %08llx, hash was %08llx, success=%d\n", 0x150eff2bcd891e18, crc_res, 0x150eff2bcd891e18 == crc_res);
+                        printf("Hash is %08llx\n", crc_res);
+
+                        // Write the parameters to flash; but don't set update_pending yet (only after verification by the network)
+                        UpdateParams_t update_params;
+                        update_params.update_pending = 0;
+                        update_params.size = (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding;
+                        update_params.signature = UpdateParams_t::MAGIC;
+                        update_params.hash = crc_res;
+                        at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
 
                         std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                         ack->push_back(DATA_BLOCK_AUTH_REQ);
@@ -262,6 +278,18 @@ private:
                     // do MIC check...
                     // if MIC check is OK, then start flashing the firmware
                     // TTN has MIC not implemented yet
+
+                    // Set update_pending to 1
+                    UpdateParams_t update_params;
+                    at45.read(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                    update_params.update_pending = 1;
+
+                    // and write back to flash
+                    at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+
+                    // and now reboot the device...
+                    printf("System going down for reset *NOW*!\n");
+                    NVIC_SystemReset();
                 }
             }
             break;
