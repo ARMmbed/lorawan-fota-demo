@@ -3,8 +3,8 @@
 
 using namespace std;
 
-static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
-static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
+static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x3D, 0xAA };
+static uint8_t network_key[] = { 0x3B, 0x1D, 0x68, 0xC3, 0x08, 0xD0, 0xE8, 0x1E, 0x0B, 0x64, 0x2C, 0x37, 0x4A, 0xE0, 0xDD, 0x19 };
 static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
 static uint8_t ack = 0;
@@ -16,8 +16,6 @@ static uint8_t ack = 0;
 static bool deep_sleep = false;
 
 mDot* dot = NULL;
-
-Serial pc(USBTX, USBRX);
 
 // // fwd declaration
 void send_mac_msg(uint8_t port, vector<uint8_t>* data);
@@ -262,8 +260,6 @@ void class_switch(char cls) {
 }
 
 int main() {
-    pc.baud(115200);
-
     mts::MTSLog::setLogLevel(mts::MTSLog::TRACE_LEVEL);
 
     dot = mDot::getInstance();
