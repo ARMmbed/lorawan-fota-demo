@@ -2,13 +2,12 @@
 #define __RADIO_EVENT_H__
 
 #include "mbed.h"
-#include <sys/time.h>
 
 #include "dot_util.h"
 #include "mDotEvent.h"
 #include "ProtocolLayer.h"
 #include "base64.h"
-#include "AT45Flash.h"
+#include "AT45BlockDevice.h"
 #include "FragmentationSession.h"
 #include "FragmentationCrc64.h"
 #include "tiny-aes.h"
@@ -157,7 +156,7 @@ private:
                 ack->push_back(FRAG_SESSION_SETUP_ANS);
                 ack->push_back(0b01000000);
                 send_msg_cb(201, ack);
-                
+
                 frag_opts.NumberOfFragments = frag_params.NbFrag;
                 frag_opts.FragmentSize = frag_params.FragSize;
                 frag_opts.Padding = frag_params.Padding;
@@ -339,7 +338,7 @@ private:
 
                     uint8_t status = class_c_session_params.McGroupIDHeader;
 
-                    class_c_cancel_s = pow(2, class_c_session_params.TimeOut);
+                    class_c_cancel_s = pow(2.0f, static_cast<int>(class_c_session_params.TimeOut));
 
                     bool switch_err = false;
 
@@ -494,7 +493,7 @@ private:
     Timeout class_c_cancel_timeout;
     uint32_t class_c_cancel_s;
 
-    AT45Flash at45;
+    AT45BlockDevice at45;
     FragmentationSession* frag_session;
     FragmentationSessionOpts_t frag_opts;
 

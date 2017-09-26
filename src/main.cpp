@@ -1,5 +1,7 @@
+#include "mbed.h"
 #include "dot_util.h"
 #include "RadioEvent.h"
+#include "ChannelPlans.h"
 
 using namespace std;
 
@@ -260,9 +262,12 @@ void class_switch(char cls) {
 }
 
 int main() {
+    printf("Hoi?\n");
+
     mts::MTSLog::setLogLevel(mts::MTSLog::TRACE_LEVEL);
 
-    dot = mDot::getInstance();
+    lora::ChannelPlan_EU868 plan;
+    dot = mDot::getInstance(&plan);
 
     // attach the custom events handler
     dot->setEvents(&radio_events);

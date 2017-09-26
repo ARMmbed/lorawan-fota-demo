@@ -5,13 +5,14 @@
             "value": 100
         },
         "ack-mac-commands": {
-            "help": "Where to ACK fragmentation / datablock MAC commands",
-            "value": 1
+            "help": "Whether to ACK fragmentation / datablock MAC commands",
+            "value": 0
         }
     },
     "macros": ["CBC=0", "EBC=1", "MBED_HEAP_STATS_ENABLED=1"],
     "target_overrides": {
         "XDOT_L151CC": {
+            "target.bootloader_img": "bootloader/xdot-at45-develop.bin"
         }
     }
 }
