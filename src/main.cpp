@@ -5,8 +5,8 @@
 
 using namespace std;
 
-static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x3D, 0xAA };
-static uint8_t network_key[] = { 0x3B, 0x1D, 0x68, 0xC3, 0x08, 0xD0, 0xE8, 0x1E, 0x0B, 0x64, 0x2C, 0x37, 0x4A, 0xE0, 0xDD, 0x19 };
+static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
+static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
 static uint8_t ack = 0;
@@ -261,12 +261,29 @@ void class_switch(char cls) {
     }
 }
 
+#define IS_NEW_APP  1
+
+DigitalOut led(LED1);
+void blink() {
+    led = !led;
+}
+
 int main() {
-    printf("Hoi?\n");
+#if IS_NEW_APP == 1
+    printf("Hoi from NEW UPDATED SHINY FIRMWARE\n");
 
-    mts::MTSLog::setLogLevel(mts::MTSLog::TRACE_LEVEL);
+    Ticker t;
+    t.attach(callback(blink), 1.0f);
+#else
+    printf("Hoi from OLD FIRMWARE\n");
 
-    lora::ChannelPlan_EU868 plan;
+    Ticker t;
+    t.attach(callback(blink), 0.5f);
+#endif
+
+    mts::MTSLog::setLogLevel(mts::MTSLog::INFO_LEVEL);
+
+    lora::ChannelPlan_US915 plan;
     dot = mDot::getInstance(&plan);
 
     // attach the custom events handler

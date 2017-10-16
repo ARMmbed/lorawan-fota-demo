@@ -50,7 +50,7 @@ Description: 	Firmware update over the air with LoRa proof of concept
 #define  DATA_BLOCK_AUTH_REQ_LENGTH 0xa
 #define  LORAWAN_APP_FTM_PACKAGE_DATA_MAX_SIZE 20
 
-#define REDUNDANCYMAX 240
+#define REDUNDANCYMAX 80
 
 #define DELAY_BW2FCNT  10 // 5s
 #define STATUS_ERROR 1

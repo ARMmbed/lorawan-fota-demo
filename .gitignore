@@ -7,3 +7,4 @@ mbed_settings.*
 .vscode/
 mbed-lorawan-frag-lib/
 bootloader/xdot-at45-symlinked.bin
+src/UpdateCerts.h

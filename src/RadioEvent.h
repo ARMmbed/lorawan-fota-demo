@@ -8,11 +8,13 @@
 #include "ProtocolLayer.h"
 #include "base64.h"
 #include "AT45BlockDevice.h"
-#include "FragmentationSession.h"
-#include "FragmentationCrc64.h"
+#include "mbed_lorawan_frag_lib.h"
 #include "tiny-aes.h"
 #include "mbed_stats.h"
 #include "UpdateParameters.h"
+#include "UpdateCerts.h"
+#include "BDFile.h"
+#include "janpatch.h"
 
 typedef struct {
     uint32_t uplinkCounter;
@@ -32,6 +34,17 @@ typedef struct {
 
     uint32_t Rx2Frequency;
 } LoRaWANCredentials_t;
+
+static bool compare_buffers(uint8_t* buff1, const uint8_t* buff2, size_t size) {
+    for (size_t ix = 0; ix < size; ix++) {
+        if (buff1[ix] != buff2[ix]) return false;
+    }
+    return true;
+}
+
+static void print_patch_progress(uint8_t pct) {
+    printf("Patch progress: %d%%\n", pct);
+}
 
 class RadioEvent : public mDotEvent
 {
@@ -134,6 +147,10 @@ private:
         switch(info->RxBuffer[0]) {
             case FRAG_SESSION_SETUP_REQ:
             {
+                mbed_stats_heap_t heap_stats;
+                mbed_stats_heap_get(&heap_stats);
+                printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
+
                 if(info->RxBufferSize != FRAG_SESSION_SETUP_REQ_LENGTH) {
                     logError("Invalid FRAG_SESSION_SETUP_REQ command");
                     return;
@@ -176,8 +193,6 @@ private:
                     delete frag_session;
                 }
 
-
-                mbed_stats_heap_t heap_stats;
                 mbed_stats_heap_get(&heap_stats);
                 printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
@@ -227,9 +242,9 @@ private:
                         // Write the parameters to flash; but don't set update_pending yet (only after verification by the network)
                         UpdateParams_t update_params;
                         update_params.update_pending = 0;
-                        update_params.size = (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding;
+                        update_params.size = (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding - FOTA_SIGNATURE_LENGTH;
+                        update_params.offset = frag_opts.FlashOffset + FOTA_SIGNATURE_LENGTH;
                         update_params.signature = UpdateParams_t::MAGIC;
-                        update_params.hash = crc_res;
                         at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
 
                         std::vector<uint8_t>* ack = new std::vector<uint8_t>();
@@ -279,13 +294,188 @@ private:
                     // if MIC check is OK, then start flashing the firmware
                     // TTN has MIC not implemented yet
 
-                    // Set update_pending to 1
                     UpdateParams_t update_params;
+                    // read the current page (with offset and size info)
                     at45.read(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
-                    update_params.update_pending = 1;
 
-                    // and write back to flash
-                    at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                    // Read out the header of the package...
+                    UpdateSignature_t* header = new UpdateSignature_t();
+                    at45.read(header, update_params.offset - FOTA_SIGNATURE_LENGTH, FOTA_SIGNATURE_LENGTH);
+
+                    if (!compare_buffers(header->manufacturer_uuid, UPDATE_CERT_MANUFACTURER_UUID, 16)) {
+                        debug("Manufacturer UUID does not match\n");
+                        return;
+                    }
+
+                    debug("Manufacturer UUID matches\n");
+
+                    if (!compare_buffers(header->device_class_uuid, UPDATE_CERT_DEVICE_CLASS_UUID, 16)) {
+                        debug("Device class UUID does not match\n");
+                        return;
+                    }
+
+                    debug("Device class UUID matches\n");
+
+                    // Is this a diff?
+                    uint8_t* diff_info = (uint8_t*)&header->diff_info;
+
+                    printf("Diff? %d, size=%d\n", diff_info[0], (diff_info[1] << 16) + (diff_info[2] << 8) + diff_info[3]);
+
+                    if (diff_info[0] == 1) {
+                        int old_size = (diff_info[1] << 16) + (diff_info[2] << 8) + diff_info[3];
+
+                        // read current fw into FOTA_DIFF_OLD_FW_PAGE
+                        FlashIAP flash;
+                        flash.init();
+
+                        const uint32_t page_size = flash.get_page_size();
+                        char* page_buffer = (char*)malloc(page_size);
+
+                        int bytes_left = old_size;
+                        size_t bd_address = FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size();
+                        size_t flash_address = 0x8007000; // @todo: don't hard code this, is there a macro for it??
+
+                        bool print_first = true;
+
+                        while (bytes_left > 0) {
+                            // copy it over
+                            flash.read(page_buffer, flash_address, page_size);
+                            at45.program(page_buffer, bd_address, page_size);
+
+                            if (print_first) {
+                                for (size_t ix = 0; ix < page_size; ix++) {
+                                    printf("%02x ", page_buffer[ix]);
+                                }
+                                printf("\n");
+                                print_first = false;
+                            }
+
+                            // printf("Copied from flash (%d) to at45 (%d), size=%d\n", flash_address, bd_address, page_size);
+
+                            bytes_left -= page_size;
+                            bd_address += page_size;
+                            flash_address += page_size;
+                        }
+
+                        free(page_buffer);
+
+                        // so now use JANPatch
+                        printf("source start=%lu size=%d\n", FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
+                        BDFILE source(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
+                        printf("diff start=%lu size=%lu\n", update_params.offset, update_params.size);
+                        BDFILE diff(&at45, update_params.offset, update_params.size);
+                        printf("target start=%lu\n", FOTA_DIFF_TARGET_PAGE * at45.get_read_size());
+                        BDFILE target(&at45, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 0);
+
+                        unsigned char *source_buff = (unsigned char*)malloc(512);
+                        unsigned char *diff_buff = (unsigned char*)malloc(512);
+                        unsigned char *target_buff = (unsigned char*)malloc(512);
+
+                        if (!source_buff || !diff_buff || !target_buff) {
+                            printf("Could not allocate diff buffers...\n");
+
+                            if (source_buff) free(source_buff);
+                            if (diff_buff) free(diff_buff);
+                            if (target_buff) free(target_buff);
+                            return;
+                        }
+
+                        janpatch_ctx ctx = {
+                            { source_buff, 512 },
+                            { diff_buff, 512 },
+                            { target_buff, 512 },
+
+                            &bd_fread,
+                            &bd_fwrite,
+                            &bd_fseek,
+                            &bd_ftell,
+
+                            &print_patch_progress
+                        };
+                        printf("Starting patching into page %d\n", FOTA_DIFF_TARGET_PAGE);
+                        int r = janpatch(ctx, &source, &diff, &target);
+                        printf("Patching done... %d\n", r);
+
+                        free(source_buff);
+                        free(diff_buff);
+                        free(target_buff);
+
+                        if (r != 0) {
+                            printf("Patching failed (%d)\n", r);
+                        }
+
+                        page_buffer = (char*)malloc(528);
+                        at45.read(page_buffer, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 528);
+                        for (size_t ix = 0; ix < 528; ix++) {
+                            printf("%02x ", page_buffer[ix]);
+                        }
+                        printf("\n");
+                        free(page_buffer);
+
+                        update_params.offset = FOTA_DIFF_TARGET_PAGE * at45.get_read_size();
+                        update_params.size = target.ftell();
+                    }
+
+
+                    // Calculate the SHA256 hash of the file, and then verify whether the signature was signed with a trusted private key
+                    unsigned char sha_out_buffer[32];
+                    {
+                        uint8_t sha_buffer[128];
+
+                        // SHA256 requires a large buffer, alloc on heap instead of stack
+                        FragmentationSha256* sha256 = new FragmentationSha256(&at45, sha_buffer, sizeof(sha_buffer));
+
+                        // The first FOTA_SIGNATURE_LENGTH bytes are reserved for the sig, so don't use it for calculating the SHA256 hash
+                        sha256->calculate(
+                            update_params.offset,
+                            update_params.size,
+                            sha_out_buffer);
+
+                        debug("SHA256 hash is: ");
+                        for (size_t ix = 0; ix < 32; ix++) {
+                            debug("%02x", sha_out_buffer[ix]);
+                        }
+                        debug("\n");
+
+                        delete sha256;
+
+                        mbed_stats_heap_t heap_stats;
+                        mbed_stats_heap_get(&heap_stats);
+                        printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
+
+                        // now check that the signature is correct...
+                        {
+                            // debug("RSA signature is: ");
+                            // for (size_t ix = 0; ix < FOTA_SIGNATURE_LENGTH; ix++) {
+                            //     debug("%02x", signature[ix]);
+                            // }
+                            // debug("\n");
+
+                            // @TODO: Temp disable RSA verification, out of memory on xDot
+
+                            // // RSA requires a large buffer, alloc on heap instead of stack
+                            // FragmentationRsaVerify* rsa = new FragmentationRsaVerify(UPDATE_CERT_PUBKEY_N, UPDATE_CERT_PUBKEY_E);
+                            // bool valid = rsa->verify(sha_out_buffer, header->signature, sizeof(header->signature));
+                            // if (!valid) {
+                            //     debug("RSA verification of firmware failed\n");
+                            //     return;
+                            // }
+                            // else {
+                            //     debug("RSA verification OK\n");
+                            // }
+
+                            // delete rsa;
+                        }
+                    }
+
+                    free(header);
+
+                    // Hash is matching, now populate the FOTA_INFO_PAGE with information about the update, so the bootloader can flash the update
+                    // update_params.update_pending = 1;
+                    // memcpy(update_params.sha256_hash, sha_out_buffer, sizeof(sha_out_buffer));
+                    // at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+
+                    debug("Stored the update parameters in flash on page 0x%x. Reset the board to apply update.\n", FOTA_INFO_PAGE);
 
                     // and now reboot the device...
                     printf("System going down for reset *NOW*!\n");

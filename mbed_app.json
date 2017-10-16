@@ -2,7 +2,7 @@
     "config": {
         "max-redundancy-packets": {
             "help": "The maximum number of redundancy packets this device can process. A higher number requires more heap space.",
-            "value": 100
+            "value": 40
         },
         "ack-mac-commands": {
             "help": "Whether to ACK fragmentation / datablock MAC commands",
@@ -13,12 +13,11 @@
         "CBC=0",
         "EBC=1",
         "MBED_HEAP_STATS_ENABLED=1",
-        "FOTA_INFO_PAGE=0x1800",
-        "FOTA_UPDATE_PAGE=0x1801"
+        "JANPATCH_STREAM=BDFILE"
     ],
     "target_overrides": {
         "XDOT_L151CC": {
-            "target.bootloader_img": "bootloader/xdot-at45-develop.bin"
+            "target.bootloader_img": "bootloader/xdot-at45-symlinked.bin"
         }
     }
 }
