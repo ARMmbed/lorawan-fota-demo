@@ -27,7 +27,7 @@
 #define     FOTA_UPDATE_PAGE       0x1801                       // The update starts at this page (and then continues)
 #define     FOTA_DIFF_OLD_FW_PAGE  0x2100
 #define     FOTA_DIFF_TARGET_PAGE  0x2500
-#define     FOTA_SIGNATURE_LENGTH  sizeof(UpdateSignature_t)    // Length of RSA signature + class UUIDs + diff struct (5 bytes) -> matches sizeof(UpdateSignature_t)
+#define     FOTA_SIGNATURE_LENGTH  sizeof(UpdateSignature_t)    // Length of ECDSA signature + class UUIDs + diff struct (5 bytes) -> matches sizeof(UpdateSignature_t)
 
 // This structure is shared between the bootloader and the target application
 // it contains information on whether there's an update pending, and the hash of the update
@@ -43,8 +43,8 @@ struct UpdateParams_t {
 };
 
 // This structure contains the update header (which is the first FOTA_SIGNATURE_LENGTH bytes of a package)
-typedef struct {
-    unsigned char signature[256];       // RSA/SHA256 signature, signed with private key of the firmware (after applying patching)
+typedef struct __attribute__((__packed__)) {
+    unsigned char signature[71];        // ECDSA/SHA256 signature, signed with private key of the firmware (after applying patching)
     uint8_t manufacturer_uuid[16];      // Manufacturer UUID
     uint8_t device_class_uuid[16];      // Device Class UUID
 

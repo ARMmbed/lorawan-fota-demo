@@ -400,28 +400,18 @@ private:
 
                         // now check that the signature is correct...
                         {
-                            // debug("RSA signature is: ");
-                            // for (size_t ix = 0; ix < FOTA_SIGNATURE_LENGTH; ix++) {
-                            //     debug("%02x", signature[ix]);
-                            // }
-                            // debug("\n");
+                            // ECDSA requires a large buffer, alloc on heap instead of stack
+                            FragmentationEcdsaVerify* ecdsa = new FragmentationEcdsaVerify(UPDATE_CERT_PUBKEY, UPDATE_CERT_LENGTH);
+                            bool valid = ecdsa->verify(sha_out_buffer, header->signature, 71);
+                            if (!valid) {
+                                debug("ECDSA verification of firmware failed\n");
+                                return;
+                            }
+                            else {
+                                debug("ECDSA verification OK\n");
+                            }
 
-                            debug("Skip over RSA verification on xDot...\n");
-
-                            // @TODO: Temp disable RSA verification, out of memory on xDot
-
-                            // // RSA requires a large buffer, alloc on heap instead of stack
-                            // FragmentationRsaVerify* rsa = new FragmentationRsaVerify(UPDATE_CERT_PUBKEY_N, UPDATE_CERT_PUBKEY_E);
-                            // bool valid = rsa->verify(sha_out_buffer, header->signature, sizeof(header->signature));
-                            // if (!valid) {
-                            //     debug("RSA verification of firmware failed\n");
-                            //     return;
-                            // }
-                            // else {
-                            //     debug("RSA verification OK\n");
-                            // }
-
-                            // delete rsa;
+                            delete ecdsa;
                         }
                     }
 
