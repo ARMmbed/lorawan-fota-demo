@@ -7,6 +7,10 @@
         "ack-mac-commands": {
             "help": "Whether to ACK fragmentation / datablock MAC commands",
             "value": 0
+        },
+        "application-start-address": {
+            "help": "Where the application starts in flash (needs to be aligned with bootloader)",
+            "value": "0x8007000"
         }
     },
     "macros": [

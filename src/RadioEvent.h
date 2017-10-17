@@ -15,6 +15,7 @@
 #include "UpdateCerts.h"
 #include "BDFile.h"
 #include "janpatch.h"
+#include "mbed_delta_update.h"
 
 typedef struct {
     uint32_t uplinkCounter;
@@ -42,8 +43,26 @@ static bool compare_buffers(uint8_t* buff1, const uint8_t* buff2, size_t size) {
     return true;
 }
 
-static void print_patch_progress(uint8_t pct) {
-    printf("Patch progress: %d%%\n", pct);
+static void calculate_sha256(BlockDevice* bd, size_t offset, size_t size, unsigned char sha_out_buffer[32]) {
+    uint8_t sha_buffer[128];
+
+    // SHA256 requires a large buffer, alloc on heap instead of stack
+    FragmentationSha256* sha256 = new FragmentationSha256(bd, sha_buffer, sizeof(sha_buffer));
+
+    sha256->calculate(
+        offset,
+        size,
+        sha_out_buffer);
+
+    delete sha256;
+}
+
+static void print_sha256(unsigned char sha_out_buffer[32]) {
+    debug("SHA256 hash is: ");
+    for (size_t ix = 0; ix < 32; ix++) {
+        debug("%02x", sha_out_buffer[ix]);
+    }
+    debug("\n");
 }
 
 class RadioEvent : public mDotEvent
@@ -324,93 +343,43 @@ private:
                     if (diff_info[0] == 1) {
                         int old_size = (diff_info[1] << 16) + (diff_info[2] << 8) + diff_info[3];
 
+                        int v;
+
                         // read current fw into FOTA_DIFF_OLD_FW_PAGE
-                        FlashIAP flash;
-                        flash.init();
+                        v = copy_flash_to_blockdevice(MBED_CONF_APP_APPLICATION_START_ADDRESS,
+                            old_size, &at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size());
 
-                        const uint32_t page_size = flash.get_page_size();
-                        char* page_buffer = (char*)malloc(page_size);
-
-                        int bytes_left = old_size;
-                        size_t bd_address = FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size();
-                        size_t flash_address = 0x8007000; // @todo: don't hard code this, is there a macro for it??
-
-                        bool print_first = true;
-
-                        while (bytes_left > 0) {
-                            // copy it over
-                            flash.read(page_buffer, flash_address, page_size);
-                            at45.program(page_buffer, bd_address, page_size);
-
-                            if (print_first) {
-                                for (size_t ix = 0; ix < page_size; ix++) {
-                                    printf("%02x ", page_buffer[ix]);
-                                }
-                                printf("\n");
-                                print_first = false;
-                            }
-
-                            // printf("Copied from flash (%d) to at45 (%d), size=%d\n", flash_address, bd_address, page_size);
-
-                            bytes_left -= page_size;
-                            bd_address += page_size;
-                            flash_address += page_size;
-                        }
-
-                        free(page_buffer);
-
-                        // so now use JANPatch
-                        printf("source start=%lu size=%d\n", FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
-                        BDFILE source(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
-                        printf("diff start=%lu size=%lu\n", update_params.offset, update_params.size);
-                        BDFILE diff(&at45, update_params.offset, update_params.size);
-                        printf("target start=%lu\n", FOTA_DIFF_TARGET_PAGE * at45.get_read_size());
-                        BDFILE target(&at45, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 0);
-
-                        unsigned char *source_buff = (unsigned char*)malloc(512);
-                        unsigned char *diff_buff = (unsigned char*)malloc(512);
-                        unsigned char *target_buff = (unsigned char*)malloc(512);
-
-                        if (!source_buff || !diff_buff || !target_buff) {
-                            printf("Could not allocate diff buffers...\n");
-
-                            if (source_buff) free(source_buff);
-                            if (diff_buff) free(diff_buff);
-                            if (target_buff) free(target_buff);
+                        if (v != MBED_DELTA_UPDATE_OK) {
+                            debug("copy_flash_to_blockdevice failed %d\n", v);
                             return;
                         }
 
-                        janpatch_ctx ctx = {
-                            { source_buff, 512 },
-                            { diff_buff, 512 },
-                            { target_buff, 512 },
+                        // calculate sha256 hash for current fw & diff file (for debug purposes)
+                        unsigned char sha_out_buff[32];
+                        calculate_sha256(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size, sha_out_buff);
+                        debug("Current firmware ");
+                        print_sha256(sha_out_buff);
 
-                            &bd_fread,
-                            &bd_fwrite,
-                            &bd_fseek,
-                            &bd_ftell,
+                        calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buff);
+                        debug("Diff file ");
+                        print_sha256(sha_out_buff);
 
-                            &print_patch_progress
-                        };
-                        printf("Starting patching into page %d\n", FOTA_DIFF_TARGET_PAGE);
-                        int r = janpatch(ctx, &source, &diff, &target);
-                        printf("Patching done... %d\n", r);
+                        // so now use JANPatch
+                        printf("source start=%llu size=%d\n", FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
+                        BDFILE source(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
+                        printf("diff start=%lu size=%u\n", update_params.offset, update_params.size);
+                        BDFILE diff(&at45, update_params.offset, update_params.size);
+                        printf("target start=%llu\n", FOTA_DIFF_TARGET_PAGE * at45.get_read_size());
+                        BDFILE target(&at45, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 0);
 
-                        free(source_buff);
-                        free(diff_buff);
-                        free(target_buff);
+                        v = apply_delta_update(&at45, 528, &source, &diff, &target);
 
-                        if (r != 0) {
-                            printf("Patching failed (%d)\n", r);
+                        if (v != MBED_DELTA_UPDATE_OK) {
+                            debug("apply_delta_update failed %d\n", v);
+                            return;
                         }
 
-                        page_buffer = (char*)malloc(528);
-                        at45.read(page_buffer, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 528);
-                        for (size_t ix = 0; ix < 528; ix++) {
-                            printf("%02x ", page_buffer[ix]);
-                        }
-                        printf("\n");
-                        free(page_buffer);
+                        debug("New file length is %ld\n", target.ftell());
 
                         update_params.offset = FOTA_DIFF_TARGET_PAGE * at45.get_read_size();
                         update_params.size = target.ftell();
@@ -420,24 +389,10 @@ private:
                     // Calculate the SHA256 hash of the file, and then verify whether the signature was signed with a trusted private key
                     unsigned char sha_out_buffer[32];
                     {
-                        uint8_t sha_buffer[128];
+                        calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buffer);
 
-                        // SHA256 requires a large buffer, alloc on heap instead of stack
-                        FragmentationSha256* sha256 = new FragmentationSha256(&at45, sha_buffer, sizeof(sha_buffer));
-
-                        // The first FOTA_SIGNATURE_LENGTH bytes are reserved for the sig, so don't use it for calculating the SHA256 hash
-                        sha256->calculate(
-                            update_params.offset,
-                            update_params.size,
-                            sha_out_buffer);
-
-                        debug("SHA256 hash is: ");
-                        for (size_t ix = 0; ix < 32; ix++) {
-                            debug("%02x", sha_out_buffer[ix]);
-                        }
-                        debug("\n");
-
-                        delete sha256;
+                        debug("Update file ");
+                        print_sha256(sha_out_buffer);
 
                         mbed_stats_heap_t heap_stats;
                         mbed_stats_heap_get(&heap_stats);
@@ -450,6 +405,8 @@ private:
                             //     debug("%02x", signature[ix]);
                             // }
                             // debug("\n");
+
+                            debug("Skip over RSA verification on xDot...\n");
 
                             // @TODO: Temp disable RSA verification, out of memory on xDot
 
@@ -471,11 +428,16 @@ private:
                     free(header);
 
                     // Hash is matching, now populate the FOTA_INFO_PAGE with information about the update, so the bootloader can flash the update
-                    // update_params.update_pending = 1;
-                    // memcpy(update_params.sha256_hash, sha_out_buffer, sizeof(sha_out_buffer));
-                    // at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                    if (0) {
+                        update_params.update_pending = 1;
+                        memcpy(update_params.sha256_hash, sha_out_buffer, sizeof(sha_out_buffer));
+                        at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
 
-                    debug("Stored the update parameters in flash on page 0x%x. Reset the board to apply update.\n", FOTA_INFO_PAGE);
+                        debug("Stored the update parameters in flash on page 0x%x. Reset the board to apply update.\n", FOTA_INFO_PAGE);
+                    }
+                    else {
+                        debug("Has not stored update parameters in flash, override in RadioEvent.h\n");
+                    }
 
                     // and now reboot the device...
                     printf("System going down for reset *NOW*!\n");
@@ -537,7 +499,7 @@ private:
 
                     printf("MC_CLASSC_SESSION_REQ:\n");
                     printf("\tMcGroupIDHeader: %d\n", class_c_session_params.McGroupIDHeader);
-                    printf("\tTimeOut: %d\n", class_c_session_params.TimeOut);
+                    printf("\tTimeOut: %lu\n", class_c_session_params.TimeOut);
                     printf("\tTimeToStart: %li\n", class_c_session_params.TimeToStart);
                     printf("\tUlFCountRef: %d\n", class_c_session_params.UlFCountRef);
                     printf("\tDLFrequencyClassCSession: %li\n", class_c_session_params.DLFrequencyClassCSession);

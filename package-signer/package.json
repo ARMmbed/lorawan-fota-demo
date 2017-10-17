@@ -1,0 +1,19 @@
+{
+  "name": "lora-update-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generates firmware update manifests",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/armmbed/fota-lora-radio.git"
+  },
+  "author": "Jan Jongboom <jan.jongboom@arm.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/armmbed/fota-lora-radio/issues"
+  },
+  "homepage": "https://github.com/armmbed/fota-lora-radio#readme",
+  "dependencies": {
+    "uuid-1345": "^0.99.6"
+  }
+}

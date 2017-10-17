@@ -3,6 +3,9 @@
 #include "RadioEvent.h"
 #include "ChannelPlans.h"
 
+#define APP_VERSION         2
+#define IS_NEW_APP          1
+
 using namespace std;
 
 static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
@@ -261,22 +264,18 @@ void class_switch(char cls) {
     }
 }
 
-#define IS_NEW_APP  1
-
 DigitalOut led(LED1);
 void blink() {
     led = !led;
 }
 
 int main() {
-#if IS_NEW_APP == 1
-    printf("Hoi from NEW UPDATED SHINY FIRMWARE\n");
+    printf("Hello from application version %d\n", APP_VERSION);
 
+#if IS_NEW_APP == 1
     Ticker t;
     t.attach(callback(blink), 1.0f);
 #else
-    printf("Hoi from OLD FIRMWARE\n");
-
     Ticker t;
     t.attach(callback(blink), 0.5f);
 #endif
