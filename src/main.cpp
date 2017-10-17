@@ -3,7 +3,7 @@
 #include "RadioEvent.h"
 #include "ChannelPlans.h"
 
-#define APP_VERSION         20
+#define APP_VERSION         22
 #define IS_NEW_APP          1
 
 using namespace std;
@@ -321,7 +321,7 @@ int main() {
         // display configuration
         display_config();
 
-        dot->setLogLevel(mts::MTSLog::INFO_LEVEL);
+        dot->setLogLevel(mts::MTSLog::ERROR_LEVEL);
     } else {
         // restore the saved session if the dot woke from deepsleep mode
         // useful to use with deepsleep because session info is otherwise lost when the dot enters deepsleep
