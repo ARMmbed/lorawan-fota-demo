@@ -77,6 +77,7 @@ public:
     {
         join_succeeded = false;
         cls = '0';
+        has_received_frag_session = false;
 
         int ain;
         if ((ain = at45.init()) != BD_ERROR_OK) {
@@ -146,6 +147,10 @@ public:
         printf("\tDownlinkCounter: %li\n", class_a_credentials.DownlinkCounter);
         printf("\tTxDataRate: %d\n", class_a_credentials.TxDataRate);
         printf("\tRxDataRate: %d\n", class_a_credentials.RxDataRate);
+
+        mbed_stats_heap_t heap_stats;
+        mbed_stats_heap_get(&heap_stats);
+        printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
     }
 
     void UpdateClassACredentials(LoRaWANCredentials_t* credentials) {
@@ -224,6 +229,8 @@ private:
 
                 printf("FragmentationSession initialized OK\n");
 
+                has_received_frag_session = true;
+
                 mbed_stats_heap_get(&heap_stats);
                 printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
             }
@@ -298,11 +305,16 @@ private:
 
             case DATA_BLOCK_AUTH_ANS:
             {
+                // sanity check in case old DATA_BLOCK_AUTH_ANS is still in the queue
+                if (!has_received_frag_session) return;
+
                 printf("DATA_BLOCK_AUTH_ANS: ");
                 for (size_t ix = 0; ix < info->RxBufferSize; ix++) {
                     printf("%02x ", info->RxBuffer[ix]);
                 }
                 printf("\n");
+
+
 
                 // fragindex and success bit are on info->RxBuffer[1]
                 if (info->RxBufferSize == 2) {
@@ -345,23 +357,14 @@ private:
 
                         int v;
 
-                        // read current fw into FOTA_DIFF_OLD_FW_PAGE
-                        v = copy_flash_to_blockdevice(MBED_CONF_APP_APPLICATION_START_ADDRESS,
-                            old_size, &at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size());
-
-                        if (v != MBED_DELTA_UPDATE_OK) {
-                            debug("copy_flash_to_blockdevice failed %d\n", v);
-                            return;
-                        }
-
                         // calculate sha256 hash for current fw & diff file (for debug purposes)
                         unsigned char sha_out_buff[32];
                         calculate_sha256(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size, sha_out_buff);
-                        debug("Current firmware ");
+                        debug("Current firmware hash: ");
                         print_sha256(sha_out_buff);
 
                         calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buff);
-                        debug("Diff file ");
+                        debug("Diff file hash: ");
                         print_sha256(sha_out_buff);
 
                         // so now use JANPatch
@@ -379,7 +382,7 @@ private:
                             return;
                         }
 
-                        debug("New file length is %ld\n", target.ftell());
+                        debug("Patched firmware length is %ld\n", target.ftell());
 
                         update_params.offset = FOTA_DIFF_TARGET_PAGE * at45.get_read_size();
                         update_params.size = target.ftell();
@@ -391,7 +394,7 @@ private:
                     {
                         calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buffer);
 
-                        debug("Update file ");
+                        debug("Patched firmware hash: ");
                         print_sha256(sha_out_buffer);
 
                         mbed_stats_heap_t heap_stats;
@@ -400,11 +403,18 @@ private:
 
                         // now check that the signature is correct...
                         {
+                            printf("ECDSA signature is: ");
+                            for (size_t ix = 0; ix < header->signature_length; ix++) {
+                                printf("%02x ", header->signature[ix]);
+                            }
+                            printf("\n");
+
                             // ECDSA requires a large buffer, alloc on heap instead of stack
                             FragmentationEcdsaVerify* ecdsa = new FragmentationEcdsaVerify(UPDATE_CERT_PUBKEY, UPDATE_CERT_LENGTH);
-                            bool valid = ecdsa->verify(sha_out_buffer, header->signature, 71);
+                            bool valid = ecdsa->verify(sha_out_buffer, header->signature, header->signature_length);
                             if (!valid) {
                                 debug("ECDSA verification of firmware failed\n");
+                                free(header);
                                 return;
                             }
                             else {
@@ -418,12 +428,12 @@ private:
                     free(header);
 
                     // Hash is matching, now populate the FOTA_INFO_PAGE with information about the update, so the bootloader can flash the update
-                    if (0) {
+                    if (1) {
                         update_params.update_pending = 1;
                         memcpy(update_params.sha256_hash, sha_out_buffer, sizeof(sha_out_buffer));
                         at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
 
-                        debug("Stored the update parameters in flash on page 0x%x. Reset the board to apply update.\n", FOTA_INFO_PAGE);
+                        debug("Stored the update parameters in flash on page 0x%x\n", FOTA_INFO_PAGE);
                     }
                     else {
                         debug("Has not stored update parameters in flash, override in RadioEvent.h\n");
@@ -442,7 +452,6 @@ private:
         switch (info->RxBuffer[0]) {
             case MC_GROUP_SETUP_REQ:
                 {
-                    // 0201a61e012600112233445566778899aabbccddeeff0000000003e8
                     class_c_group_params.McGroupIDHeader = info->RxBuffer[1];
                     class_c_group_params.McAddr = (info->RxBuffer[5] << 24 ) + ( info->RxBuffer[4] << 16 ) + ( info->RxBuffer[3] << 8 ) + info->RxBuffer[2];
                     memcpy(class_c_group_params.McKey, info->RxBuffer + 6, 16);
@@ -669,6 +678,7 @@ private:
 
     bool join_succeeded;
     char cls;
+    bool has_received_frag_session;
 };
 
 #endif

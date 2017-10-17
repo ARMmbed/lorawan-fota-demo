@@ -25,10 +25,10 @@ The application implements:
 
     ```
     # ARMCC
-    $ mbed compile -m xdot_l151cc -t ARM
+    $ mbed compile -m xdot_l151cc -t ARM --profile=./profiles/develop.json
 
     # GCC
-    $ mbed compile -m xdot_l151cc -t GCC_ARM
+    $ mbed compile -m xdot_l151cc -t GCC_ARM --profile=./profiles/develop.json
     ```
 
 1. Flash the application on your development board.

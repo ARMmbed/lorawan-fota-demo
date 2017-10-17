@@ -3,7 +3,7 @@
 #include "RadioEvent.h"
 #include "ChannelPlans.h"
 
-#define APP_VERSION         2
+#define APP_VERSION         20
 #define IS_NEW_APP          1
 
 using namespace std;
