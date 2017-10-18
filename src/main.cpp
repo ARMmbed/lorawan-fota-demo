@@ -2,14 +2,18 @@
 #include "dot_util.h"
 #include "RadioEvent.h"
 #include "ChannelPlans.h"
+#include "CayenneLPP.h"
 
-#define APP_VERSION         22
-#define IS_NEW_APP          1
+#define APP_VERSION         27
+#define IS_NEW_APP          0
 
 using namespace std;
 
+// Application EUI
 static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
+// Application Key
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
+
 static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
 static uint8_t ack = 0;
@@ -332,8 +336,6 @@ int main() {
     while (true) {
         if (!in_class_c_mode) {
 
-            uint16_t light;
-
             // join network if not joined
             if (!dot->getNetworkJoinStatus()) {
                 join_network();
@@ -341,23 +343,32 @@ int main() {
                 LoRaWANCredentials_t creds;
                 get_current_credentials(&creds);
                 radio_events.OnClassAJoinSucceeded(&creds);
+
+                // turn duty cycle back on after joining
+                dot->setDisableDutyCycle(false);
             }
 
-            // get some dummy data and send it to the gateway
-            light = rand() % 65000;
+            // send some data in CayenneLPP format
+            static AnalogIn moisture(GPIO2);
+            static float last_reading = 0.0f;
+
+            float moisture_value = moisture.read();
+
+            CayenneLPP payload(50);
+            payload.addAnalogOutput(1, moisture.read());
 
             vector<uint8_t>* tx_data = new vector<uint8_t>();
-            if (!in_class_c_mode) {
-                tx_data->push_back((light >> 8) & 0xFF);
-                tx_data->push_back(light & 0xFF);
-                // logInfo("light: %lu [0x%04X]", light, light);
+            for (size_t ix = 0; ix < payload.getSize(); ix++) {
+                tx_data->push_back(payload.getBuffer()[ix]);
             }
 
-            UplinkMessage* dummy = new UplinkMessage();
-            dummy->port = 5;
-            dummy->data = tx_data;
+            UplinkMessage* uplink = new UplinkMessage();
+            uplink->port = 5;
+            uplink->data = tx_data;
 
-            send_packet(dummy);
+            send_packet(uplink);
+
+            last_reading = moisture_value;
         }
 
         // if going into deepsleep mode, save the session so we don't need to join again after waking up
@@ -369,11 +380,6 @@ int main() {
 
         uint32_t sleep_time = calculate_actual_sleep_time(3 + (rand() % 8));
         // logInfo("going to wait %d seconds for duty-cycle...", sleep_time);
-
-        // ONLY ONE of the three functions below should be uncommented depending on the desired wakeup method
-        //sleep_wake_rtc_only(deep_sleep);
-        //sleep_wake_interrupt_only(deep_sleep);
-        // sleep_wake_rtc_or_interrupt(10, deep_sleep); // automatically waits at least for next TX window according to duty cycle
 
         // @todo: in class A can go to deepsleep, in class C cannot
         if (in_class_c_mode) {
