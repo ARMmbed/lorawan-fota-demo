@@ -34,7 +34,7 @@ The application implements:
 
 ## Relevant projects
 
-* [Bootloader](https://github.com/janjongboom/lorawan-at45-fota-bootloader)
+* [Bootloader](https://github.com/armmbed/lorawan-fota-bootloader)
 * [Fragmentation library](https://github.com/janjongboom/mbed-lorawan-frag-lib)
 * [Patching library](https://github.com/janjongboom/janpatch)
 * [Standalone fragmentation demonstration](https://github.com/janjongboom/lorawan-fragmentation-in-flash) - useful when developing, as you don't need a LoRa network.
