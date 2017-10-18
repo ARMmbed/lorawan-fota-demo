@@ -18,7 +18,14 @@ const oldSize = fs.statSync(oldPath).size;
 // console.error('oldSize is', oldSize);
 
 // create diff...
-let diff = execSync(`~/Downloads/jdiff081/src/jdiff ${oldPath} ${newPath}`);
+let diff;
+try {
+    diff = execSync(`jdiff ${oldPath} ${newPath}`);
+}
+catch (ex) {
+    console.error('Add jdiff to your PATH, see http://jojodiff.sourceforge.net');
+    process.exit(1);
+}
 
 let oldHash = crypto.createHash('sha256').update(oldFile).digest('hex');
 let diffHash = crypto.createHash('sha256').update(diff).digest('hex');
