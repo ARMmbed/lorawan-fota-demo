@@ -3,8 +3,10 @@
 #include "RadioEvent.h"
 #include "ChannelPlans.h"
 #include "CayenneLPP.h"
+#include "ApplicationConfig.h"
+#include "AT45BlockDevice.h"
 
-#define APP_VERSION         27
+#define APP_VERSION         31
 #define IS_NEW_APP          0
 
 using namespace std;
@@ -17,6 +19,10 @@ static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69,
 static uint8_t frequency_sub_band = 2;
 static bool public_network = true;
 static uint8_t ack = 0;
+
+AT45BlockDevice at45;
+ApplicationConfig* config;
+InterruptIn soap(GPIO3);
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -31,7 +37,7 @@ void send_mac_msg(uint8_t port, vector<uint8_t>* data);
 void class_switch(char cls);
 
 // Custom event handler for automatically displaying RX data
-RadioEvent radio_events(&send_mac_msg, &class_switch);
+RadioEvent radio_events(&at45, &send_mac_msg, &class_switch);
 
 typedef struct {
     uint8_t port;
@@ -207,7 +213,7 @@ void send_packet(UplinkMessage* message) {
     if (ret != mDot::MDOT_OK) {
         logError("failed to send data to %s [%d][%s]", dot->getJoinMode() == mDot::PEER_TO_PEER ? "peer" : "gateway", ret, mDot::getReturnCodeString(ret).c_str());
     } else {
-        logInfo("successfully sent data to %s", dot->getJoinMode() == mDot::PEER_TO_PEER ? "peer" : "gateway");
+        printf("[INFO] successfully sent data to %s\n", dot->getJoinMode() == mDot::PEER_TO_PEER ? "peer" : "gateway");
     }
 
     // Message was sent, or was not mac message? remove from queue
@@ -268,6 +274,16 @@ void class_switch(char cls) {
     }
 }
 
+static bool counter_interrupt = false;
+static time_t last_ev = 0;
+void counter_dec() {
+    if (time(NULL) - last_ev < 2) return;
+
+    counter_interrupt = true;
+    config->decrease_dispenses_left();
+    last_ev = time(NULL);
+}
+
 DigitalOut led(LED1);
 void blink() {
     led = !led;
@@ -289,8 +305,14 @@ int main() {
     lora::ChannelPlan_US915 plan;
     dot = mDot::getInstance(&plan);
 
+    soap.mode(PullDown);
+    soap.fall(&counter_dec);
+
     // attach the custom events handler
     dot->setEvents(&radio_events);
+
+    config = new ApplicationConfig(dot, &at45);
+    printf("Dispenses: %d\n", config->get_dispenses_left());
 
     if (!dot->getStandbyFlag()) {
         // start from a well-known state
@@ -348,14 +370,14 @@ int main() {
                 dot->setDisableDutyCycle(false);
             }
 
-            // send some data in CayenneLPP format
-            static AnalogIn moisture(GPIO2);
             static float last_reading = 0.0f;
 
-            float moisture_value = moisture.read();
+            // send some data in CayenneLPP format
+            float value = static_cast<float>(config->get_dispenses_left()) / 100.0f;
 
             CayenneLPP payload(50);
-            payload.addAnalogOutput(1, moisture.read());
+            payload.addAnalogInput(13, value);
+            payload.addAnalogInput(15, APP_VERSION);
 
             vector<uint8_t>* tx_data = new vector<uint8_t>();
             for (size_t ix = 0; ix < payload.getSize(); ix++) {
@@ -366,9 +388,14 @@ int main() {
             uplink->port = 5;
             uplink->data = tx_data;
 
-            send_packet(uplink);
+            printf("Dispenses: %d\n", config->get_dispenses_left());
+            config->persist();
 
-            last_reading = moisture_value;
+            if (last_reading != value) {
+                send_packet(uplink);
+
+                last_reading = value;
+            }
         }
 
         // if going into deepsleep mode, save the session so we don't need to join again after waking up

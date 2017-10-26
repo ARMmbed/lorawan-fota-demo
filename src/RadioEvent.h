@@ -7,7 +7,6 @@
 #include "mDotEvent.h"
 #include "ProtocolLayer.h"
 #include "base64.h"
-#include "AT45BlockDevice.h"
 #include "mbed_lorawan_frag_lib.h"
 #include "tiny-aes.h"
 #include "mbed_stats.h"
@@ -70,17 +69,17 @@ class RadioEvent : public mDotEvent
 
 public:
     RadioEvent(
-        // EventQueue* aevent_queue,
+        BlockDevice* bd,
         Callback<void(uint8_t, std::vector<uint8_t>*)> asend_msg_cb,
         Callback<void(char)> aclass_switch_cb
-    ) : /*event_queue(aevent_queue), */send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb)
+    ) : /*event_queue(aevent_queue), */send_msg_cb(asend_msg_cb), class_switch_cb(aclass_switch_cb), at45(bd)
     {
         join_succeeded = false;
         cls = '0';
         has_received_frag_session = false;
 
         int ain;
-        if ((ain = at45.init()) != BD_ERROR_OK) {
+        if ((ain = at45->init()) != BD_ERROR_OK) {
             printf("Failed to initialize AT45BlockDevice (%d)\n", ain);
         }
     }
@@ -211,7 +210,7 @@ private:
                 // @todo: make this dependent on the space on the heap
                 frag_opts.RedundancyPackets = MBED_CONF_APP_MAX_REDUNDANCY_PACKETS;
 
-                frag_opts.FlashOffset = FOTA_UPDATE_PAGE * at45.get_read_size();
+                frag_opts.FlashOffset = FOTA_UPDATE_PAGE * at45->get_read_size();
 
                 if (frag_session != NULL) {
                     delete frag_session;
@@ -220,7 +219,7 @@ private:
                 mbed_stats_heap_get(&heap_stats);
                 printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
-                frag_session = new FragmentationSession(&at45, frag_opts);
+                frag_session = new FragmentationSession(at45, frag_opts);
                 FragResult result = frag_session->initialize();
                 if (result != FRAG_OK) {
                     printf("FragmentationSession could not initialize! %d %s\n", result, FragmentationSession::frag_result_string(result));
@@ -260,7 +259,7 @@ private:
                         // CRC64 of the original file is 150eff2bcd891e18 (see fake-fw/test-crc64/main.cpp)
                         uint8_t crc_buffer[128];
 
-                        FragmentationCrc64 crc64(&at45, crc_buffer, sizeof(crc_buffer));
+                        FragmentationCrc64 crc64(at45, crc_buffer, sizeof(crc_buffer));
                         uint64_t crc_res = crc64.calculate(frag_opts.FlashOffset, (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding);
 
                         printf("Hash is %08llx\n", crc_res);
@@ -271,7 +270,7 @@ private:
                         update_params.size = (frag_opts.NumberOfFragments * frag_opts.FragmentSize) - frag_opts.Padding - FOTA_SIGNATURE_LENGTH;
                         update_params.offset = frag_opts.FlashOffset + FOTA_SIGNATURE_LENGTH;
                         update_params.signature = UpdateParams_t::MAGIC;
-                        at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                        at45->program(&update_params, FOTA_INFO_PAGE * at45->get_read_size(), sizeof(UpdateParams_t));
 
                         std::vector<uint8_t>* ack = new std::vector<uint8_t>();
                         ack->push_back(DATA_BLOCK_AUTH_REQ);
@@ -327,11 +326,11 @@ private:
 
                     UpdateParams_t update_params;
                     // read the current page (with offset and size info)
-                    at45.read(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                    at45->read(&update_params, FOTA_INFO_PAGE * at45->get_read_size(), sizeof(UpdateParams_t));
 
                     // Read out the header of the package...
                     UpdateSignature_t* header = new UpdateSignature_t();
-                    at45.read(header, update_params.offset - FOTA_SIGNATURE_LENGTH, FOTA_SIGNATURE_LENGTH);
+                    at45->read(header, update_params.offset - FOTA_SIGNATURE_LENGTH, FOTA_SIGNATURE_LENGTH);
 
                     if (!compare_buffers(header->manufacturer_uuid, UPDATE_CERT_MANUFACTURER_UUID, 16)) {
                         debug("Manufacturer UUID does not match\n");
@@ -359,23 +358,23 @@ private:
 
                         // calculate sha256 hash for current fw & diff file (for debug purposes)
                         unsigned char sha_out_buff[32];
-                        calculate_sha256(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size, sha_out_buff);
+                        calculate_sha256(at45, FOTA_DIFF_OLD_FW_PAGE * at45->get_read_size(), old_size, sha_out_buff);
                         debug("Current firmware hash: ");
                         print_sha256(sha_out_buff);
 
-                        calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buff);
+                        calculate_sha256(at45, update_params.offset, update_params.size, sha_out_buff);
                         debug("Diff file hash: ");
                         print_sha256(sha_out_buff);
 
                         // so now use JANPatch
-                        printf("source start=%llu size=%d\n", FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
-                        BDFILE source(&at45, FOTA_DIFF_OLD_FW_PAGE * at45.get_read_size(), old_size);
+                        printf("source start=%llu size=%d\n", FOTA_DIFF_OLD_FW_PAGE * at45->get_read_size(), old_size);
+                        BDFILE source(at45, FOTA_DIFF_OLD_FW_PAGE * at45->get_read_size(), old_size);
                         printf("diff start=%lu size=%u\n", update_params.offset, update_params.size);
-                        BDFILE diff(&at45, update_params.offset, update_params.size);
-                        printf("target start=%llu\n", FOTA_DIFF_TARGET_PAGE * at45.get_read_size());
-                        BDFILE target(&at45, FOTA_DIFF_TARGET_PAGE * at45.get_read_size(), 0);
+                        BDFILE diff(at45, update_params.offset, update_params.size);
+                        printf("target start=%llu\n", FOTA_DIFF_TARGET_PAGE * at45->get_read_size());
+                        BDFILE target(at45, FOTA_DIFF_TARGET_PAGE * at45->get_read_size(), 0);
 
-                        v = apply_delta_update(&at45, 528, &source, &diff, &target);
+                        v = apply_delta_update(at45, 528, &source, &diff, &target);
 
                         if (v != MBED_DELTA_UPDATE_OK) {
                             debug("apply_delta_update failed %d\n", v);
@@ -384,7 +383,7 @@ private:
 
                         debug("Patched firmware length is %ld\n", target.ftell());
 
-                        update_params.offset = FOTA_DIFF_TARGET_PAGE * at45.get_read_size();
+                        update_params.offset = FOTA_DIFF_TARGET_PAGE * at45->get_read_size();
                         update_params.size = target.ftell();
                     }
 
@@ -392,7 +391,7 @@ private:
                     // Calculate the SHA256 hash of the file, and then verify whether the signature was signed with a trusted private key
                     unsigned char sha_out_buffer[32];
                     {
-                        calculate_sha256(&at45, update_params.offset, update_params.size, sha_out_buffer);
+                        calculate_sha256(at45, update_params.offset, update_params.size, sha_out_buffer);
 
                         debug("Patched firmware hash: ");
                         print_sha256(sha_out_buffer);
@@ -431,7 +430,7 @@ private:
                     if (1) {
                         update_params.update_pending = 1;
                         memcpy(update_params.sha256_hash, sha_out_buffer, sizeof(sha_out_buffer));
-                        at45.program(&update_params, FOTA_INFO_PAGE * at45.get_read_size(), sizeof(UpdateParams_t));
+                        at45->program(&update_params, FOTA_INFO_PAGE * at45->get_read_size(), sizeof(UpdateParams_t));
 
                         debug("Stored the update parameters in flash on page 0x%x\n", FOTA_INFO_PAGE);
                     }
@@ -672,9 +671,9 @@ private:
     Timeout class_c_cancel_timeout;
     uint32_t class_c_cancel_s;
 
-    AT45BlockDevice at45;
     FragmentationSession* frag_session;
     FragmentationSessionOpts_t frag_opts;
+    BlockDevice* at45;
 
     bool join_succeeded;
     char cls;
