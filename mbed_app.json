@@ -13,7 +13,8 @@
         "CBC=0",
         "EBC=1",
         "MBED_HEAP_STATS_ENABLED=1",
-        "JANPATCH_STREAM=BDFILE"
+        "JANPATCH_STREAM=BDFILE",
+        "MBEDTLS_CONFIG_FILE=\"fotalora_mbedtls_config.h\""
     ],
     "target_overrides": {
         "XDOT_L151CC": {
