@@ -18,7 +18,7 @@ if (fs.existsSync(certsFolder)) {
     process.exit(1);
 }
 
-fs.mkdirSync('certs');
+fs.mkdirSync(Path.join(__dirname, 'certs'));
 
 console.log('Creating keypair');
 

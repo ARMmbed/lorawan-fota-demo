@@ -22,6 +22,14 @@ The application implements:
     $ mbed import https://github.com/armmbed/lorawan-fota-demo
     ```
 
+1. Generate a set of keys to sign updates:
+
+    ```
+    $ cd package-signer
+    $ npm install
+    $ node generate-keys.js your-domain.com your-device-model
+    ```
+
 1. Compile this application:
 
     ```

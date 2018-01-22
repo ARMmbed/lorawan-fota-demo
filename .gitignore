@@ -10,3 +10,5 @@ bootloader/xdot-at45-symlinked.bin
 src/UpdateCerts.h
 package-signer/certs/
 package-signer/tmp/
+package-lock.json
+
