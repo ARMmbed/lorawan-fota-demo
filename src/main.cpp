@@ -32,8 +32,9 @@ static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 }
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 
 static uint8_t frequency_sub_band = 2;
-static bool public_network = true;
 static uint8_t ack = 0;
+
+static lora::ChannelPlan_US915 plan;
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -303,7 +304,6 @@ int main() {
 
     mts::MTSLog::setLogLevel(mts::MTSLog::INFO_LEVEL);
 
-    lora::ChannelPlan_US915 plan;
     dot = mDot::getInstance(&plan);
 
     // attach the custom events handler
@@ -322,7 +322,7 @@ int main() {
                 logError("failed to set network join mode to OTA");
             }
         }
-        update_ota_config_id_key(network_id, network_key, frequency_sub_band, public_network, ack);
+        update_ota_config_id_key(network_id, network_key, frequency_sub_band, true, ack);
 
         logInfo("setting data rate to DR4");
         if (dot->setTxDataRate(mDot::DR4) != mDot::MDOT_OK) {
