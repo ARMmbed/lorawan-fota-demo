@@ -12,12 +12,14 @@ The application implements:
 
 ## How to build
 
-1. Get access to The Things Network Canary, so you can actually deploy updates.
+1. Create an account at the [experimental The Things Network FOTA](https://console.fotademo.thethings.network) deployment.
+1. Point your gateway to `router.fotademo.thethings.network`.
+1. Create a new device in the The Things Network console.
 1. Set your application EUI and application key in `main.cpp`.
 1. Install Mbed CLI and either ARMCC 5 or GCC ARM 6 (not 4.9!), and import this application:
 
     ```
-    $ mbed import https://github.com/armmbed/fota-lora-radio
+    $ mbed import https://github.com/armmbed/lorawan-fota-demo
     ```
 
 1. Compile this application:
