@@ -18,7 +18,7 @@
     ],
     "target_overrides": {
         "XDOT_L151CC": {
-            "target.bootloader_img": "bootloader/xdot-at45-symlinked.bin"
+            "target.bootloader_img": "bootloader/xdot-at45-develop.bin"
         }
     }
 }
