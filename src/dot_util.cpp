@@ -3,6 +3,8 @@
 #include "xdot_low_power.h"
 #endif
 
+#include "mbed_stats.h"
+
 #if defined(TARGET_MTS_MDOT_F411RE)
 uint32_t portA[6];
 uint32_t portB[6];
@@ -278,6 +280,11 @@ void join_network() {
         ret = dot->joinNetwork();
         if (ret != mDot::MDOT_OK) {
             logError("failed to join network %d:%s", ret, mDot::getReturnCodeString(ret).c_str());
+
+            mbed_stats_heap_t heap_stats;
+            mbed_stats_heap_get(&heap_stats);
+            printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
+
             // in some frequency bands we need to wait until another channel is available before transmitting again
             uint32_t delay_s = (dot->getNextTxMs() / 1000) + 1;
             if (delay_s < 2) {

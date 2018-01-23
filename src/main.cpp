@@ -31,9 +31,9 @@
 using namespace std;
 
 // Application EUI
-static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 };
+static uint8_t network_id[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xF0, 0x00, 0x6A, 0x73 };
 // Application Key
-static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
+static uint8_t network_key[] = { 0xB8, 0xB4, 0x33, 0x0D, 0xFD, 0xD5, 0xD8, 0x61, 0xE7, 0x37, 0xA6, 0xC9, 0x5E, 0x5F, 0xD3, 0xF0 };
 
 static uint8_t ack = 0;
 
@@ -82,6 +82,8 @@ typedef struct {
 
 vector<UplinkMessage*>* message_queue = new vector<UplinkMessage*>();
 static bool in_class_c_mode = false;
+
+static mbed_stats_heap_t heap_stats;
 
 void get_current_credentials(LoRaWANCredentials_t* creds) {
     memcpy(creds->DevAddr, &(dot->getNetworkAddress()[0]), 4);
@@ -216,12 +218,15 @@ void send_packet(UplinkMessage* message) {
     }
 
     dot->setAppPort(m->port);
-    
+
     printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
     for (size_t ix = 0; ix < m->data->size(); ix++) {
         printf("%02x ", m->data->at(ix));
     }
     printf("\n");
+
+    mbed_stats_heap_get(&heap_stats);
+    printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
     uint32_t ret;
 
@@ -372,6 +377,10 @@ int main() {
         logInfo("restoring network session from NVM");
         dot->restoreNetworkSession();
     }
+
+    mbed_stats_heap_t heap_stats;
+    mbed_stats_heap_get(&heap_stats);
+    printf("Heap stats: Used %lu / %lu bytes\n", heap_stats.current_size, heap_stats.reserved_size);
 
     while (true) {
         if (!in_class_c_mode) {
