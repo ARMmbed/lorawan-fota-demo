@@ -340,8 +340,16 @@ int main() {
         logInfo("defaulting Dot configuration");
         dot->resetConfig();
         dot->resetNetworkSession();
-        dot->setTxDataRate(tx_data_rate);
-        dot->setJoinRx2DataRate(join_rx2_data_rate);
+
+        logInfo("setting data rate to %d", tx_data_rate);
+        if (dot->setTxDataRate(tx_data_rate) != mDot::MDOT_OK) {
+            logError("failed to set data rate");
+        }
+
+        logInfo("setting join RX2 data rate to %d", join_rx2_data_rate);
+        if (dot->setJoinRx2DataRate(join_rx2_data_rate) != mDot::MDOT_OK) {
+            logError("failed to set join RX2 data rate");
+        }
 
         // update configuration if necessary
         if (dot->getJoinMode() != mDot::OTA) {
@@ -351,11 +359,6 @@ int main() {
             }
         }
         update_ota_config_id_key(network_id, network_key, frequency_sub_band, true, ack);
-
-        logInfo("setting data rate to DR4");
-        if (dot->setTxDataRate(mDot::DR4) != mDot::MDOT_OK) {
-            logError("failed to set data rate");
-        }
 
         dot->setAdr(false); // @todo enable
 
