@@ -21,6 +21,10 @@
 #include "ChannelPlans.h"
 #include "CayenneLPP.h"
 
+#define EU868
+// #define US915
+#define TTN
+
 #define APP_VERSION         27
 #define IS_NEW_APP          0
 
@@ -31,10 +35,29 @@ static uint8_t network_id[] = { 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06 }
 // Application Key
 static uint8_t network_key[] = { 0x72, 0xEF, 0x3F, 0xDE, 0x77, 0x53, 0x60, 0x69, 0x49, 0x25, 0x73, 0xF5, 0x7E, 0x6C, 0x9F, 0xE8 };
 
-static uint8_t frequency_sub_band = 2;
 static uint8_t ack = 0;
 
+#ifdef US915
 static lora::ChannelPlan_US915 plan;
+static mDot::DataRates tx_data_rate = mDot::DR4;
+static mDot::DataRates join_rx2_data_rate = mDot::DR8;
+#ifdef TTN
+static uint8_t frequency_sub_band = 2;
+#else
+static uint8_t frequency_sub_band = 0; // try all subbands
+#endif // TTN
+#endif // US915
+
+#ifdef EU868
+static lora::ChannelPlan_EU868 plan;
+static mDot::DataRates tx_data_rate = mDot::DR5;
+static uint8_t frequency_sub_band = 0; // not applicable
+#ifdef TTN
+static mDot::DataRates join_rx2_data_rate = mDot::DR3; // SF9
+#else
+static mDot::DataRates join_rx2_data_rate = mDot::DR0; // SF12
+#endif // TTN
+#endif // EU868
 
 // deepsleep consumes slightly less current than sleep
 // in sleep mode, IO state is maintained, RAM is retained, and application will resume after waking up
@@ -193,9 +216,7 @@ void send_packet(UplinkMessage* message) {
     }
 
     dot->setAppPort(m->port);
-    dot->setTxDataRate(mDot::DR4); // @todo, this is not good, should use ADR
-    // dot->setRxDataRate(mDot::SF_7);
-
+    
     printf("[INFO] Going to send a message. port=%d, dr=%s, data=", m->port, dot->getDateRateDetails(dot->getTxDataRate()).c_str());
     for (size_t ix = 0; ix < m->data->size(); ix++) {
         printf("%02x ", m->data->at(ix));
@@ -314,6 +335,8 @@ int main() {
         logInfo("defaulting Dot configuration");
         dot->resetConfig();
         dot->resetNetworkSession();
+        dot->setTxDataRate(tx_data_rate);
+        dot->setJoinRx2DataRate(join_rx2_data_rate);
 
         // update configuration if necessary
         if (dot->getJoinMode() != mDot::OTA) {
@@ -329,7 +352,7 @@ int main() {
             logError("failed to set data rate");
         }
 
-        dot->setAdr(false);
+        dot->setAdr(false); // @todo enable
 
         dot->setDisableDutyCycle(true);
 
