@@ -22,10 +22,14 @@ fs.mkdirSync(Path.join(__dirname, 'certs'));
 
 console.log('Creating keypair');
 
-execSync(`openssl ecparam -genkey -name secp256r1 -out ${Path.join(certsFolder, 'update.key')}`)
+execSync(`openssl ecparam -genkey -name prime256v1 -out ${Path.join(certsFolder, 'update.key')}`)
 execSync(`openssl ec -in ${Path.join(certsFolder, 'update.key')} -pubout > ${Path.join(certsFolder, 'update.pub')}`);
 
 let pubKey = fs.readFileSync(Path.join(certsFolder, 'update.pub'), 'utf-8');
+pubKey = pubKey.split('\n');
+pubKey = pubKey.slice(1, pubKey.length - 2);
+pubKey = Buffer.concat(pubKey.map(k => new Buffer(k, 'base64')));
+pubKey = Array.from(pubKey).map(c => '0x' + c.toString(16)).join(', ');
 
 console.log('Creating keypair OK');
 
@@ -51,8 +55,8 @@ let deviceClassUUID = new UUID(deviceIds['device-class-uuid']).toBuffer();
 let certs = `#ifndef _UPDATE_CERTS_H
 #define _UPDATE_CERTS_H
 
-const char * UPDATE_CERT_PUBKEY = ${JSON.stringify(pubKey)};
-const size_t UPDATE_CERT_LENGTH = ${pubKey.length + 1};
+const char   UPDATE_CERT_PUBKEY[] = { ${pubKey} };
+const size_t UPDATE_CERT_LENGTH = sizeof(UPDATE_CERT_PUBKEY);
 
 const uint8_t UPDATE_CERT_MANUFACTURER_UUID[16] = { ${Array.from(manufacturerUUID).map(c => '0x' + c.toString(16)).join(', ')} };
 const uint8_t UPDATE_CERT_DEVICE_CLASS_UUID[16] = { ${Array.from(deviceClassUUID).map(c => '0x' + c.toString(16)).join(', ')} };
