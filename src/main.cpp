@@ -199,8 +199,8 @@ void set_class_a_creds() {
 void send_packet(UplinkMessage* message) {
     if (message_queue->size() > 0 && !message->is_mac) {
         // logInfo("MAC messages in queue, dropping this packet");
-        free(message->data);
-        free(message);
+        delete message->data;
+        delete message;
     }
     else {
         // otherwise, add to queue
@@ -260,8 +260,8 @@ void send_packet(UplinkMessage* message) {
 
         // remove message from the queue
         message_queue->erase(message_queue->begin());
-        free(m->data);
-        free(m);
+        delete m->data;
+        delete m;
     }
 
     // update credentials with the new counter
