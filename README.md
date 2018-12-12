@@ -1,4 +1,4 @@
-# Firmware Updates over LoRaWAN for Multi-Tech xDot
+# This repository is superseded by [mbed-os-example-lorawan-fuota](https://github.com/armmbed/mbed-os-example-lorawan-fuota) which implements the latest specifications
 
 This application implements multicast firmware updates over LoRaWAN. It runs on Multi-Tech xDot devices with external flash (AT45 SPI flash by default) like the [L-TEK FF1705](https://os.mbed.com/platforms/L-TEK-FF1705/).
 
